@@ -2,6 +2,6 @@ Clone:
 
 >git clone https://github.com/Youra82/dbot.git
 
-Installation:
+Installation (in cd dbot wechseln):
 >
 >bash dbot/install.sh
