@@ -11,3 +11,7 @@ Starten:
 >source .venv/bin/activate
 >
 >python3 dbot.py
+
+Historical Ordner leeren:
+>
+>rm -rf historical_data_download/*
