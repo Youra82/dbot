@@ -1,2 +1,4 @@
-git clone https://github.com/Youra82/dbot.git
-bash dbot/install.sh
+Clone:
+>git clone https://github.com/Youra82/dbot.git
+Installation:
+>bash dbot/install.sh
