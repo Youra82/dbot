@@ -6,4 +6,6 @@ Installation (in cd dbot wechseln):
 >
 >bash dbot/install.sh
 >
+Starten:
+>
 >source .venv/bin/activate
