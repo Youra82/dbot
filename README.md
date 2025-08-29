@@ -5,3 +5,5 @@ Clone:
 Installation (in cd dbot wechseln):
 >
 >bash dbot/install.sh
+>
+>source .venv/bin/activate
