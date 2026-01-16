@@ -1,12 +1,8 @@
 #!/bin/bash
-# run_tests.sh - Run DBot Tests
+# Dieses Skript führt das komplette Test-Sicherheitsnetz aus.
+echo "--- Starte DBot-Sicherheitsnetz ---"
 
-echo "======================================"
-echo "  DBot Tests"
-echo "======================================"
-echo ""
-
-# Activate venv
+# Aktiviere die virtuelle Umgebung
 if [ -d ".venv" ]; then
     source .venv/bin/activate
 else
@@ -15,11 +11,11 @@ else
     exit 1
 fi
 
-# Run pytest
-echo "🧪 Führe Tests aus..."
-pytest tests/ -v --tb=short
+# Führe pytest aus. -v für mehr Details, -s um print() Ausgaben anzuzeigen.
+python3 -m pytest -v -s
 
-echo ""
-echo "======================================"
-echo "  Tests abgeschlossen"
-echo "======================================"
+# Deaktiviere die Umgebung wieder
+deactivate
+
+echo "--- Sicherheitscheck abgeschlossen ---"
+

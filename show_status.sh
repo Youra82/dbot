@@ -1,40 +1,77 @@
 #!/bin/bash
-# show_status.sh - Zeige DBot Status
 
-echo "======================================"
-echo "  DBot Status"
-echo "======================================"
-echo ""
+# Farben für eine schönere Ausgabe definieren
+BLUE='\033[0;34m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
 
-# Check if bot is running
-if pgrep -f "dbot" > /dev/null; then
-    echo "✅ DBot läuft"
-    echo ""
-    echo "Aktive Prozesse:"
-    ps aux | grep -E "[p]ython.*dbot" | awk '{print "   PID:", $2, "| CPU:", $3"%", "| MEM:", $4"%"}'
-else
-    echo "❌ DBot läuft NICHT"
-fi
+# Hauptverzeichnis des Projekts bestimmen
+PROJECT_ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 
-echo ""
-echo "======================================"
-echo "  Letzte Log-Einträge"
-echo "======================================"
-echo ""
+# Funktion, um den Inhalt einer Datei formatiert auszugeben
+show_file_content() {
+    FILE_PATH=$1
+    
+    # Bestimme eine beschreibende Überschrift basierend auf dem Dateinamen/Pfad
+    DESCRIPTION=$(basename "$FILE_PATH")
 
-# Show recent logs
-for log_file in logs/dbot_*.log; do
-    if [ -f "$log_file" ]; then
-        echo "📝 $(basename "$log_file"):"
-        tail -n 5 "$log_file" | sed 's/^/   /'
-        echo ""
+    if [ -f "${FILE_PATH}" ]; then
+        echo -e "\n${BLUE}======================================================================${NC}"
+        echo -e "${YELLOW}DATEI: ${DESCRIPTION}${NC}"
+        echo -e "${CYAN}Pfad: ${PROJECT_ROOT}/${FILE_PATH#./}${NC}"
+        echo -e "${BLUE}----------------------------------------------------------------------${NC}"
+        
+        # Spezielle Zensur-Logik nur für secret.json
+        if [[ "$DESCRIPTION" == "secret.json" ]]; then
+            echo -e "${YELLOW}HINWEIS: Sensible Daten in secret.json wurden zensiert.${NC}"
+            sed -E 's/("apiKey"|"secret"|"password"|"bot_token"|"chat_id"|"sender_password"): ".*"/"\1": "[ZENSIERT]"/g' "${FILE_PATH}" | cat -n
+        else
+            cat -n "${FILE_PATH}"
+        fi
+        
+        echo -e "${BLUE}======================================================================${NC}"
+    else
+        echo -e "\n${RED}WARNUNG: Datei nicht gefunden unter ${FILE_PATH}${NC}"
     fi
+}
+
+# --- ANZEIGE ALLER RELEVANTEN CODE-DATEIEN ---
+echo -e "${BLUE}======================================================================${NC}"
+echo "           Vollständige Code-Dokumentation des DBot"
+echo -e "${BLUE}======================================================================${NC}"
+
+# Finde alle relevanten Dateien, ABER schließe secret.json vorerst aus.
+# Speichere die Pfade in einem Array.
+mapfile -t FILE_LIST < <(find . -path './.venv' -prune -o -path './secret.json' -prune -o \( -name "*.py" -o -name "*.sh" -o -name "*.json" -o -name "*.txt" -o -name ".gitignore" \) -print)
+
+# Zeige zuerst alle anderen Dateien an
+for filepath in "${FILE_LIST[@]}"; do
+    show_file_content "$filepath"
 done
 
-echo "======================================"
-echo "  Nützliche Befehle"
-echo "======================================"
-echo "  tail -f logs/dbot_*.log    # Alle Logs live"
-echo "  pkill -f dbot              # Bot stoppen"
-echo "  python master_runner.py    # Bot starten"
-echo "======================================"
+# Zeige die secret.json als LETZTE Datei an
+show_file_content "secret.json"
+
+# --- ANZEIGE DER PROJEKTSTRUKTUR AM ENDE ---
+echo -e "\n\n${BLUE}======================================================="
+echo "            Aktuelle Projektstruktur"
+echo -e "=======================================================${NC}"
+
+# Eine Funktion, die eine Baumstruktur mit Standard-Tools emuliert
+list_structure() {
+    find . -path '*/.venv' -prune -o \
+           -path '*/__pycache__' -prune -o \
+           -path './.git' -prune -o \
+           -path './artifacts/db' -prune -o \
+           -path './artifacts/models' -prune -o \
+           -path './logs' -prune -o \
+           -maxdepth 4 -print | sed -e 's;[^/]*/;|____;g;s;____|; |;g'
+}
+
+list_structure
+
+echo -e "${BLUE}=======================================================${NC}"
+
