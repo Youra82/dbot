@@ -28,10 +28,14 @@ def run_single_analysis_via_simulator(start_date, end_date, start_capital):
     models_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'models')
     all_results = []
     
+    # Erstelle configs-Verzeichnis falls nicht vorhanden
+    os.makedirs(configs_dir, exist_ok=True)
+    
     config_files = sorted([f for f in os.listdir(configs_dir) if f.startswith('config_') and f.endswith('.json')])
 
     if not config_files:
-        print("\nKeine gültigen Konfigurationen zum Analysieren gefunden.")
+        print("\n⚠️  Keine Konfigurationen gefunden!")
+        print("    Bitte zuerst ./run_pipeline.sh ausführen, um Modelle und Configs zu generieren.")
         return
 
     for filename in config_files:
@@ -116,6 +120,9 @@ def run_shared_mode(is_auto: bool, start_date, end_date, start_capital, max_draw
     models_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'models')
     available_strategies = []
     
+    # Erstelle configs-Verzeichnis falls nicht vorhanden
+    os.makedirs(configs_dir, exist_ok=True)
+    
     if os.path.isdir(configs_dir):
         for filename in sorted(os.listdir(configs_dir)):
             if filename.startswith('config_') and filename.endswith('.json'):
@@ -131,7 +138,8 @@ def run_shared_mode(is_auto: bool, start_date, end_date, start_capital, max_draw
                     continue
     
     if not available_strategies:
-        print("Keine optimierten Strategien gefunden.")
+        print("\n⚠️  Keine optimierten Strategien gefunden!")
+        print("    Bitte zuerst ./run_pipeline.sh ausführen, um Modelle und Configs zu generieren.")
         return
 
     selected_files = []
