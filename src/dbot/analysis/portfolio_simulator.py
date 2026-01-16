@@ -91,18 +91,42 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
         data_with_features['st_direction'] = st_direction_series
         data_with_features.dropna(subset=['st_direction'], inplace=True) 
 
+        # Scalping-Parameter aus Config
         pred_threshold = params.get('prediction_threshold', 0.52)
-        use_supertrend_filter = params.get('use_supertrend_filter', False)  # Für Scalping default OFF
+        use_supertrend_filter = params.get('use_supertrend_filter', True)  # Default ON für Trendfilter
+        min_adx = params.get('min_adx', 10)  # Niedriger für Scalping
+        volume_spike_multiplier = params.get('volume_spike_multiplier', 1.0)  # 1.0 = kein Filter
+        min_atr_multiplier = params.get('min_atr_multiplier', 0.5)  # Niedrig für Scalping
 
-        # Generiere Signale - mit optionalem SuperTrend-Filter
+        # Berechne gleitende Durchschnitte für Filter
+        data_with_features['volume_ma'] = data_with_features['volume'].rolling(window=20).mean()
+        data_with_features['atr_ma'] = data_with_features['atr_normalized'].rolling(window=50).mean()
+        
+        # --- FILTER-LOGIK für hochfrequentes Scalping ---
+        # Basisfilter: ADX zeigt Trend an (aber niedriger Schwellenwert)
+        adx_filter = data_with_features['adx'] >= min_adx
+        
+        # Volume-Filter: Aktuelles Volume >= Multiplikator * Durchschnitt
+        volume_filter = data_with_features['volume'] >= (volume_spike_multiplier * data_with_features['volume_ma'])
+        
+        # ATR-Filter: Volatilität im akzeptablen Bereich (nicht zu niedrig, nicht zu hoch)
+        atr_filter = (data_with_features['atr_normalized'] >= min_atr_multiplier * data_with_features['atr_ma']) & \
+                     (data_with_features['atr_normalized'] <= 3.0 * data_with_features['atr_ma'])
+        
+        # Kombinierter Filter
+        combined_filter = adx_filter & volume_filter & atr_filter
+
+        # Generiere Signale basierend auf ANN-Prediction
+        long_condition = (data_with_features['prediction'] >= pred_threshold) & combined_filter
+        short_condition = (data_with_features['prediction'] <= (1 - pred_threshold)) & combined_filter
+        
+        # Optional: SuperTrend-Richtungsfilter
         if use_supertrend_filter:
-            # Mit SuperTrend: Nur Longs im Long-Trend (1.0), nur Shorts im Short-Trend (-1.0)
-            long_signals_filtered = data_with_features[(data_with_features['prediction'] >= pred_threshold) & (data_with_features['st_direction'] == 1.0)]
-            short_signals_filtered = data_with_features[(data_with_features['prediction'] <= (1 - pred_threshold)) & (data_with_features['st_direction'] == -1.0)]
-        else:
-            # Ohne SuperTrend-Filter: Nur basierend auf ANN-Prediction
-            long_signals_filtered = data_with_features[data_with_features['prediction'] >= pred_threshold]
-            short_signals_filtered = data_with_features[data_with_features['prediction'] <= (1 - pred_threshold)]
+            long_condition = long_condition & (data_with_features['st_direction'] == 1.0)
+            short_condition = short_condition & (data_with_features['st_direction'] == -1.0)
+        
+        long_signals_filtered = data_with_features[long_condition]
+        short_signals_filtered = data_with_features[short_condition]
 
         # Sammle alle Signale
         for index, row in long_signals_filtered.iterrows():
