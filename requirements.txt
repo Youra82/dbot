@@ -10,3 +10,6 @@ tqdm
 pytest
 matplotlib
 plotly
+scikit-learn
+tensorflow
+joblib
