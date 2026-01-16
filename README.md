@@ -38,20 +38,18 @@ DBot ist ein **hochaggressiver Scalping-Bot** auf ultra-kurzen Timeframes (1m, 5
 - **Multi-Asset**: BTC, ETH, SOL parallel
 - **Optuna-Optimierung**: Enger Scalping-Suchraum (Risk 8-12%, Lev 5-10, enges SL/TSL)
 
-### 🎯 Strategie-Visualisierung
+### 🎯 Strategie-Visualisierung (ANN-Scalper)
 
 ```mermaid
 flowchart LR
-    A["OHLCV (5m)"]
-    B["EMA 8/21<br/>RSI 7<br/>ATR 10"]
-    C["Breakout Check<br/>Resistance/Support"]
-    D["Volume Spike<br/>> 1.5x MA"]
-    E["Momentum > 60"]
-    F["LONG/SHORT Signal"]
-    G["5x Leverage<br/>Quick TP/SL"]
-    H["Order (CCXT)"]
+  A["OHLCV (1m/5m)"]
+  B["Feature-Engineering<br/>Bollinger/MACD/ATR/ADX/EMA/Stoch/Volume"]
+  C["ANN Predictor<br/>Long/Short-Score"]
+  D["Filter<br/>SuperTrend-Richtung<br/>ADX >= Min<br/>Volume-Spike<br/>ATR-Bedarf"]
+  E["Risk Setup<br/>RR ≈ 1:3<br/>SL ≈1% / TP 2-5%<br/>Trailing ab ~1.5x"]
+  F["Order (CCXT)"]
 
-    A --> B --> C --> D --> E --> F --> G --> H
+  A --> B --> C --> D --> E --> F
 ```
 
 ### 📈 Trade-Beispiel (LONG)
