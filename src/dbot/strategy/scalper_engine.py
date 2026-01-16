@@ -208,7 +208,7 @@ class ScalperEngine:
         return "FLAT"
     
     def open_long_position(self, df: pd.DataFrame):
-        """Öffne LONG Position"""
+        """Öffne LONG Position mit nativen Bitget Trailing Stop"""
         try:
             current_price = df.iloc[-1]['close']
             
@@ -222,28 +222,52 @@ class ScalperEngine:
             position_value = (risk_amount / sl_percent) * leverage
             amount = position_value / current_price
             
-            # Set Leverage
+            # Set Leverage & Margin Mode
             self.exchange.set_leverage(self.symbol, leverage)
+            self.exchange.set_margin_mode(self.symbol, 'isolated')
             
-            # Open Position
-            order = self.exchange.create_market_order(
+            # 1. Open Position (Market Order)
+            entry_order = self.exchange.create_market_order(
                 symbol=self.symbol,
                 side='buy',
                 amount=amount
             )
             
-            if order:
+            if entry_order:
                 self.entry_price = current_price
-                self.stop_loss = current_price * (1 - sl_percent)
-                self.take_profit = current_price * (1 + self.trading_params['take_profit_percent'] / 100)
+                sl_price = current_price * (1 - sl_percent)
+                tp_price = current_price * (1 + self.trading_params['take_profit_percent'] / 100)
+                
+                # 2. Set native Bitget Stop Loss (sofort nach Entry)
+                sl_order = self.exchange.place_stop_loss_order(
+                    symbol=self.symbol,
+                    side='sell',
+                    amount=amount,
+                    trigger_price=sl_price,
+                    reduce_only=True
+                )
+                
+                # 3. Set native Bitget Trailing Stop (mit Callback Rate)
+                callback_rate = self.trading_params['trailing_stop_distance_percent'] / 100
+                trailing_order = self.exchange.place_trailing_stop_order(
+                    symbol=self.symbol,
+                    side='sell',
+                    amount=amount,
+                    callback_rate=callback_rate,
+                    reduce_only=True
+                )
+                
+                self.stop_loss = sl_price
+                self.take_profit = tp_price
                 self.current_position = 'LONG'
                 
                 print(f"✅ LONG Position eröffnet:")
                 print(f"   Entry: {self.entry_price:.2f}")
                 print(f"   Amount: {amount:.4f}")
-                print(f"   SL: {self.stop_loss:.2f} (-{self.trading_params['stop_loss_percent']}%)")
-                print(f"   TP: {self.take_profit:.2f} (+{self.trading_params['take_profit_percent']}%)")
                 print(f"   Leverage: {leverage}x")
+                print(f"   SL Order: {sl_price:.2f} (-{self.trading_params['stop_loss_percent']}%)")
+                print(f"   Trailing SL: {callback_rate*100:.2f}% Callback (Bitget Native)")
+                print(f"   TP: {tp_price:.2f} (+{self.trading_params['take_profit_percent']}%)")
                 
                 if self.notifier:
                     self.notifier.send_trade_signal(
@@ -259,7 +283,7 @@ class ScalperEngine:
             print(f"❌ Fehler beim Öffnen der LONG Position: {e}")
     
     def open_short_position(self, df: pd.DataFrame):
-        """Öffne SHORT Position"""
+        """Öffne SHORT Position mit nativen Bitget Trailing Stop"""
         try:
             current_price = df.iloc[-1]['close']
             
@@ -273,28 +297,52 @@ class ScalperEngine:
             position_value = (risk_amount / sl_percent) * leverage
             amount = position_value / current_price
             
-            # Set Leverage
+            # Set Leverage & Margin Mode
             self.exchange.set_leverage(self.symbol, leverage)
+            self.exchange.set_margin_mode(self.symbol, 'isolated')
             
-            # Open Position
-            order = self.exchange.create_market_order(
+            # 1. Open Position (Market Order)
+            entry_order = self.exchange.create_market_order(
                 symbol=self.symbol,
                 side='sell',
                 amount=amount
             )
             
-            if order:
+            if entry_order:
                 self.entry_price = current_price
-                self.stop_loss = current_price * (1 + sl_percent)
-                self.take_profit = current_price * (1 - self.trading_params['take_profit_percent'] / 100)
+                sl_price = current_price * (1 + sl_percent)
+                tp_price = current_price * (1 - self.trading_params['take_profit_percent'] / 100)
+                
+                # 2. Set native Bitget Stop Loss (sofort nach Entry)
+                sl_order = self.exchange.place_stop_loss_order(
+                    symbol=self.symbol,
+                    side='buy',
+                    amount=amount,
+                    trigger_price=sl_price,
+                    reduce_only=True
+                )
+                
+                # 3. Set native Bitget Trailing Stop (mit Callback Rate)
+                callback_rate = self.trading_params['trailing_stop_distance_percent'] / 100
+                trailing_order = self.exchange.place_trailing_stop_order(
+                    symbol=self.symbol,
+                    side='buy',
+                    amount=amount,
+                    callback_rate=callback_rate,
+                    reduce_only=True
+                )
+                
+                self.stop_loss = sl_price
+                self.take_profit = tp_price
                 self.current_position = 'SHORT'
                 
                 print(f"✅ SHORT Position eröffnet:")
                 print(f"   Entry: {self.entry_price:.2f}")
                 print(f"   Amount: {amount:.4f}")
-                print(f"   SL: {self.stop_loss:.2f} (+{self.trading_params['stop_loss_percent']}%)")
-                print(f"   TP: {self.take_profit:.2f} (-{self.trading_params['take_profit_percent']}%)")
                 print(f"   Leverage: {leverage}x")
+                print(f"   SL Order: {sl_price:.2f} (+{self.trading_params['stop_loss_percent']}%)")
+                print(f"   Trailing SL: {callback_rate*100:.2f}% Callback (Bitget Native)")
+                print(f"   TP: {tp_price:.2f} (-{self.trading_params['take_profit_percent']}%)")
                 
                 if self.notifier:
                     self.notifier.send_trade_signal(
@@ -310,58 +358,35 @@ class ScalperEngine:
             print(f"❌ Fehler beim Öffnen der SHORT Position: {e}")
     
     def manage_position(self, df: pd.DataFrame, position: dict):
-        """Manage offene Position (SL/TP/Trailing)"""
+        """Manage offene Position mit nativen Bitget Orders (Trailing Stop via Bitget API)"""
         try:
             current_price = df.iloc[-1]['close']
             side = position['side']
             unrealized_pnl_percent = position.get('percentage', 0)
             
-            # Trailing Stop Logic
-            activation_rr = self.trading_params['trailing_stop_activation_rr']
-            trailing_distance = self.trading_params['trailing_stop_distance_percent'] / 100
-            
+            # 1. Check Take Profit (manuell)
             if side == 'long':
-                # Check TP
                 if current_price >= self.take_profit:
                     print(f"🎯 Take Profit erreicht! Schließe LONG Position")
                     self.close_position(position)
                     return
-                
-                # Check SL
-                if current_price <= self.stop_loss:
-                    print(f"🛑 Stop Loss erreicht! Schließe LONG Position")
-                    self.close_position(position)
-                    return
-                
-                # Trailing Stop
-                if unrealized_pnl_percent >= (activation_rr * self.trading_params['stop_loss_percent']):
-                    new_sl = current_price * (1 - trailing_distance)
-                    if new_sl > self.stop_loss:
-                        self.stop_loss = new_sl
-                        print(f"📈 Trailing Stop aktiviert: Neuer SL = {self.stop_loss:.2f}")
-            
             elif side == 'short':
-                # Check TP
                 if current_price <= self.take_profit:
                     print(f"🎯 Take Profit erreicht! Schließe SHORT Position")
                     self.close_position(position)
                     return
-                
-                # Check SL
-                if current_price >= self.stop_loss:
-                    print(f"🛑 Stop Loss erreicht! Schließe SHORT Position")
-                    self.close_position(position)
-                    return
-                
-                # Trailing Stop
-                if unrealized_pnl_percent >= (activation_rr * self.trading_params['stop_loss_percent']):
-                    new_sl = current_price * (1 + trailing_distance)
-                    if new_sl < self.stop_loss:
-                        self.stop_loss = new_sl
-                        print(f"📉 Trailing Stop aktiviert: Neuer SL = {self.stop_loss:.2f}")
             
-            # Status Update
-            print(f"📊 Position: {side.upper()} | PnL: {unrealized_pnl_percent:.2f}% | Price: {current_price:.2f}")
+            # 2. Check Bitget Native Trigger Orders (SL/Trailing werden von Bitget gemanagt)
+            trigger_orders = self.exchange.fetch_open_trigger_orders(self.symbol)
+            
+            if trigger_orders:
+                # Trigger Orders aktiv - Bitget managed die SL/Trailing automatisch
+                print(f"📊 Position: {side.upper()} | PnL: {unrealized_pnl_percent:.2f}% | Price: {current_price:.2f}")
+                print(f"   ✅ Bitget Native Trailing Stop aktiv ({len(trigger_orders)} Order(s))")
+            else:
+                # Keine Trigger Orders - Position wahrscheinlich durch Bitget SL/Trailing geschlossen
+                print(f"⚠️ Keine Bitget Trigger Orders gefunden - Position wurde wahrscheinlich durch SL/Trailing geschlossen")
+                self.current_position = 'NONE'
         
         except Exception as e:
             print(f"❌ Fehler im Position Management: {e}")

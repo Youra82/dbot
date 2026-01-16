@@ -194,3 +194,113 @@ class Exchange:
         except Exception as e:
             logger.warning(f"⚠️  cancel_all_orders Warning: {e}")
             return False
+    
+    def place_stop_loss_order(self, symbol: str, side: str, amount: float, 
+                             trigger_price: float, reduce_only: bool = True) -> Optional[Dict]:
+        """
+        Erstelle Stop Loss Order auf Bitget
+        
+        Args:
+            symbol: Trading Pair
+            side: 'buy' oder 'sell'
+            amount: Order Größe
+            trigger_price: Trigger Price (SL Level)
+            reduce_only: Nur zum Schließen von Positionen
+        """
+        try:
+            rounded_price = float(self.exchange.price_to_precision(symbol, trigger_price))
+            rounded_amount = float(self.exchange.amount_to_precision(symbol, amount))
+            
+            params = {
+                'triggerPrice': rounded_price,
+                'stopPrice': rounded_price,
+            }
+            
+            if reduce_only:
+                params['reduceOnly'] = True
+            
+            order = self._with_retry(
+                self.exchange.create_order,
+                symbol,
+                'market',
+                side,
+                rounded_amount,
+                None,
+                params=params
+            )
+            
+            logger.info(f"✅ Stop Loss Order erstellt: {side.upper()} {rounded_amount} @ {rounded_price}")
+            return order
+            
+        except Exception as e:
+            logger.error(f"❌ place_stop_loss_order Error: {e}")
+            return None
+    
+    def place_trailing_stop_order(self, symbol: str, side: str, amount: float,
+                                 callback_rate: float, reduce_only: bool = True) -> Optional[Dict]:
+        """
+        Erstelle Trailing Stop Order auf Bitget (nativer Exchange Trailing)
+        
+        Args:
+            symbol: Trading Pair
+            side: 'buy' oder 'sell'
+            amount: Order Größe
+            callback_rate: Callback Rate (z.B. 0.5 für 0.5% Trailing)
+            reduce_only: Nur zum Schließen von Positionen
+        """
+        try:
+            rounded_amount = float(self.exchange.amount_to_precision(symbol, amount))
+            
+            params = {
+                'stopPrice': callback_rate,  # Bitget nutzt callback_rate für Trailing
+                'trailingStopRate': callback_rate,  # Alternative Bezeichnung
+            }
+            
+            if reduce_only:
+                params['reduceOnly'] = True
+            
+            # Bitget Trailing Stop Orders
+            order = self._with_retry(
+                self.exchange.create_order,
+                symbol,
+                'market',
+                side,
+                rounded_amount,
+                None,
+                params=params
+            )
+            
+            logger.info(f"✅ Trailing Stop Order erstellt: {side.upper()} {rounded_amount} @ {callback_rate*100:.2f}% Trail")
+            return order
+            
+        except Exception as e:
+            logger.error(f"❌ place_trailing_stop_order Error: {e}")
+            return None
+    
+    def fetch_open_trigger_orders(self, symbol: str) -> List[Dict]:
+        """Hole alle offenen Trigger/Stop Orders"""
+        try:
+            orders = self._with_retry(
+                self.exchange.fetch_orders,
+                symbol,
+                params={'stop': True}
+            )
+            return orders if orders else []
+        except Exception as e:
+            logger.error(f"❌ fetch_open_trigger_orders Error: {e}")
+            return []
+    
+    def cancel_trigger_order(self, order_id: str, symbol: str) -> bool:
+        """Storniere eine Trigger Order"""
+        try:
+            self._with_retry(
+                self.exchange.cancel_order,
+                order_id,
+                symbol,
+                params={'stop': True}
+            )
+            logger.info(f"✅ Trigger Order {order_id} storniert")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️  cancel_trigger_order Warning: {e}")
+            return False
