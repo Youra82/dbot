@@ -183,6 +183,14 @@ python master_runner.py
 
 Der Bot startet alle in `settings.json` als `"active": true` markierten Strategien.
 
+### Pipeline starten
+
+```bash
+# Pipeline starten
+chmod +x run_pipeline.sh
+./run_pipeline.sh
+```
+
 ### Automatischer Start (Cronjob)
 
 Für 24/7 Betrieb:
@@ -205,6 +213,7 @@ Füge hinzu:
 ### Status-Check
 
 ```bash
+# Zeigt alle wichtigen Informationen
 ./show_status.sh
 ```
 
@@ -212,6 +221,13 @@ Zeigt:
 - Aktive Prozesse
 - Letzte Log-Einträge
 - CPU/Memory Usage
+
+### Ergebnisse anzeigen
+
+```bash
+# Aktuelle Positionen und Performance
+./show_results.sh
+```
 
 ### Live Logs
 
