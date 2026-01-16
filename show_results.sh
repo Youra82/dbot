@@ -5,100 +5,94 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+VENV_PATH=".venv/bin/activate"
+RESULTS_SCRIPT="src/dbot/analysis/show_results.py"
+OPTIMAL_CONFIGS_FILE=".optimal_configs.tmp"
+UPDATE_SCRIPT="update_settings_from_optimizer.py"
+
+source "$VENV_PATH"
+
 echo -e "${BLUE}======================================================="
 echo "   DBot Ergebnisse & Analyse"
 echo -e "=======================================================${NC}"
 
-# --- MODUS-MENÜ ---
+# --- MODUS-MENÜ (JaegerBot kompatibel) ---
 echo -e "\n${YELLOW}Wähle einen Analyse-Modus:${NC}"
-echo "  1) Letzte Log-Analyse (zeige letzte 50 Zeilen aller Logs)"
-echo "  2) Trade-Historie (zeige alle Trades aus Logs)"
-echo "  3) Performance-Übersicht (PnL, Win-Rate, etc.)"
-echo "  4) Live-Monitoring (tail -f alle Logs)"
+echo "  1) Einzel-Analyse (jede Strategie wird isoliert getestet)"
+echo "  2) Manuelle Portfolio-Simulation (du wählst das Team)"
+echo "  3) Automatische Portfolio-Optimierung (der Bot wählt das beste Team)"
+echo "  4) Interaktive Charts (Entry/Exit-Signale nur, keine Indikatoren)"
 read -p "Auswahl (1-4) [Standard: 1]: " MODE
 MODE=${MODE:-1}
 
-case $MODE in
-    1)
-        echo -e "\n${BLUE}=======================================================${NC}"
-        echo -e "${BLUE}  Letzte Log-Einträge (50 Zeilen pro Strategie)${NC}"
-        echo -e "${BLUE}=======================================================${NC}\n"
-        
-        for log_file in logs/dbot_*.log; do
-            if [ -f "$log_file" ]; then
-                echo -e "${YELLOW}📝 $(basename "$log_file"):${NC}"
-                tail -n 50 "$log_file" | sed 's/^/   /'
-                echo ""
-            fi
-        done
-        ;;
-        
-    2)
-        echo -e "\n${BLUE}=======================================================${NC}"
-        echo -e "${BLUE}  Trade-Historie (aus Logs extrahiert)${NC}"
-        echo -e "${BLUE}=======================================================${NC}\n"
-        
-        echo -e "${YELLOW}Suche nach Trade-Signalen...${NC}\n"
-        
-        # Suche nach LONG/SHORT Eröffnungen
-        for log_file in logs/dbot_*.log; do
-            if [ -f "$log_file" ]; then
-                echo -e "${CYAN}=== $(basename "$log_file") ===${NC}"
-                grep -E "LONG Position eröffnet|SHORT Position eröffnet|Position geschlossen" "$log_file" | tail -n 20
-                echo ""
-            fi
-        done
-        
-        echo -e "${GREEN}✔ Trade-Historie angezeigt${NC}"
-        ;;
-        
-    3)
-        echo -e "\n${BLUE}=======================================================${NC}"
-        echo -e "${BLUE}  Performance-Übersicht${NC}"
-        echo -e "${BLUE}=======================================================${NC}\n"
-        
-        echo -e "${YELLOW}⚠️  HINWEIS: Performance-Tracking noch nicht implementiert${NC}"
+
+python3 "$RESULTS_SCRIPT" --mode "$MODE"
+
+# --- OPTION 4: INTERAKTIVE CHARTS ---
+if [ "$MODE" == "4" ]; then
+    echo -e "\n${YELLOW}========== INTERAKTIVE CHARTS ===========${NC}"
+    echo ""
+    echo "Wähle Konfigurationsdateien von der Liste oben"
+    echo ""
+    python3 src/dbot/analysis/interactive_status.py
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}✅ Charts wurden generiert!${NC}"
+    else
+        echo -e "${RED}❌ Fehler beim Generieren der Charts.${NC}"
+    fi
+    
+    deactivate
+    exit 0
+fi
+
+if [ "$MODE" == "3" ] && [ -f "$OPTIMAL_CONFIGS_FILE" ]; then
+    echo ""
+    echo -e "${YELLOW}========================================${NC}"
+    echo -e "${YELLOW}  SETTINGS AUTOMATISCH AKTUALISIEREN?${NC}"
+    echo -e "${YELLOW}========================================${NC}"
+    echo ""
+    echo "Die optimierten Strategien können jetzt automatisch"
+    echo "in die settings.json übernommen werden."
+    echo ""
+    echo -e "${RED}ACHTUNG:${NC} Dies ersetzt alle aktuellen Strategien!"
+    echo "Es wird automatisch ein Backup erstellt (settings.json.backup)."
+    echo ""
+    read -p "Sollen die optimierten Strategien übernommen werden? (j/n): " APPLY_SETTINGS
+    
+    if [[ "$APPLY_SETTINGS" =~ ^[jJyY]$ ]]; then
         echo ""
-        echo "Geplante Features:"
-        echo "  - Equity Curve Tracking"
-        echo "  - Win-Rate & Profit Factor Berechnung"
-        echo "  - Drawdown Analyse"
-        echo "  - Trade-Statistiken (Anzahl, Größe, Duration)"
-        echo "  - CSV Export für Excel-Analyse"
-        echo ""
-        echo "Aktuell verfügbar:"
-        echo "  - Manuelle Log-Analyse (Option 1 & 2)"
-        echo "  - Bitget Web UI für Position-Tracking"
-        echo ""
-        ;;
+        echo -e "${BLUE}Aktualisiere settings.json...${NC}"
         
-    4)
-        echo -e "\n${BLUE}=======================================================${NC}"
-        echo -e "${BLUE}  Live-Monitoring (STRG+C zum Beenden)${NC}"
-        echo -e "${BLUE}=======================================================${NC}\n"
+        # Lese Config-Dateien aus Temp-Datei
+        CONFIGS=$(cat "$OPTIMAL_CONFIGS_FILE")
         
-        # Erstelle tail -f Kommando für alle Log-Dateien
-        LOG_FILES=$(find logs/ -name "dbot_*.log" 2>/dev/null | tr '\n' ' ')
+        # Rufe Python-Script auf mit allen Config-Namen als Argumente
+        python3 "$UPDATE_SCRIPT" $CONFIGS
         
-        if [ -z "$LOG_FILES" ]; then
-            echo -e "${RED}❌ Keine Log-Dateien gefunden in logs/${NC}"
-            exit 1
+        if [ $? -eq 0 ]; then
+            echo ""
+            echo -e "${GREEN}✅ Settings wurden erfolgreich aktualisiert!${NC}"
+            echo -e "${GREEN}   Backup wurde erstellt: settings.json.backup${NC}"
+        else
+            echo ""
+            echo -e "${RED}❌ Fehler beim Aktualisieren der Settings.${NC}"
         fi
         
-        echo -e "${GREEN}Zeige Live-Logs für:${NC}"
-        for log in $LOG_FILES; do
-            echo "   - $(basename "$log")"
-        done
+        # Lösche Temp-Datei
+        rm -f "$OPTIMAL_CONFIGS_FILE"
+    else
         echo ""
+        echo -e "${YELLOW}ℹ  Settings wurden NICHT aktualisiert.${NC}"
+        echo "Du kannst die Strategien später manuell in settings.json eintragen."
         
-        tail -f $LOG_FILES
-        ;;
-        
-    *)
-        echo -e "${RED}❌ Ungültige Auswahl${NC}"
-        exit 1
-        ;;
-esac
+        # Lösche Temp-Datei
+        rm -f "$OPTIMAL_CONFIGS_FILE"
+    fi
+fi
+
+deactivate
+
 
 echo -e "\n${BLUE}=======================================================${NC}"
 echo -e "${BLUE}  Nützliche Befehle:${NC}"
