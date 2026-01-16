@@ -91,11 +91,18 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
         data_with_features['st_direction'] = st_direction_series
         data_with_features.dropna(subset=['st_direction'], inplace=True) 
 
-        pred_threshold = params.get('prediction_threshold', 0.60)
+        pred_threshold = params.get('prediction_threshold', 0.52)
+        use_supertrend_filter = params.get('use_supertrend_filter', False)  # Für Scalping default OFF
 
-        # Wende SuperTrend-Filter an: Nur Longs im Long-Trend (1.0), nur Shorts im Short-Trend (-1.0)
-        long_signals_filtered = data_with_features[(data_with_features['prediction'] >= pred_threshold) & (data_with_features['st_direction'] == 1.0)]
-        short_signals_filtered = data_with_features[(data_with_features['prediction'] <= (1 - pred_threshold)) & (data_with_features['st_direction'] == -1.0)]
+        # Generiere Signale - mit optionalem SuperTrend-Filter
+        if use_supertrend_filter:
+            # Mit SuperTrend: Nur Longs im Long-Trend (1.0), nur Shorts im Short-Trend (-1.0)
+            long_signals_filtered = data_with_features[(data_with_features['prediction'] >= pred_threshold) & (data_with_features['st_direction'] == 1.0)]
+            short_signals_filtered = data_with_features[(data_with_features['prediction'] <= (1 - pred_threshold)) & (data_with_features['st_direction'] == -1.0)]
+        else:
+            # Ohne SuperTrend-Filter: Nur basierend auf ANN-Prediction
+            long_signals_filtered = data_with_features[data_with_features['prediction'] >= pred_threshold]
+            short_signals_filtered = data_with_features[data_with_features['prediction'] <= (1 - pred_threshold)]
 
         # Sammle alle Signale
         for index, row in long_signals_filtered.iterrows():
