@@ -237,29 +237,39 @@ class Exchange:
             return None
     
     def place_trailing_stop_order(self, symbol: str, side: str, amount: float,
-                                 callback_rate: float, reduce_only: bool = True) -> Optional[Dict]:
+                                 activation_price: float, callback_rate_decimal: float) -> Optional[Dict]:
         """
-        Erstelle Trailing Stop Order auf Bitget (nativer Exchange Trailing)
+        Platziere Trailing Stop Market Order auf Bitget (identisch mit JaegerBot)
+        Nutzt Bitget-spezifische Parameter: trailingTriggerPrice und trailingPercent
         
         Args:
-            symbol: Trading Pair
+            symbol: Trading Pair (z.B. "BTC/USDT:USDT")
             side: 'buy' oder 'sell'
-            amount: Order Größe
-            callback_rate: Callback Rate (z.B. 0.5 für 0.5% Trailing)
-            reduce_only: Nur zum Schließen von Positionen
+            amount: Position Größe
+            activation_price: Trigger/Activation Price (ab wann Trailing aktiv)
+            callback_rate_decimal: Callback Rate als Dezimal (z.B. 0.005 für 0.5%)
         """
         try:
+            rounded_activation = float(self.exchange.price_to_precision(symbol, activation_price))
             rounded_amount = float(self.exchange.amount_to_precision(symbol, amount))
             
-            params = {
-                'stopPrice': callback_rate,  # Bitget nutzt callback_rate für Trailing
-                'trailingStopRate': callback_rate,  # Alternative Bezeichnung
+            if rounded_amount <= 0:
+                logger.error(f"❌ Berechneter TSL-Betrag ist Null ({rounded_amount})")
+                return None
+            
+            # In Prozent umwandeln (z.B. 0.005 * 100 = 0.5%)
+            callback_rate_percent = callback_rate_decimal * 100
+            
+            # Bitget-spezifische Parameter wie JaegerBot
+            order_params = {
+                'trailingTriggerPrice': rounded_activation,
+                'trailingPercent': callback_rate_percent,
+                'productType': 'USDT-FUTURES'
             }
             
-            if reduce_only:
-                params['reduceOnly'] = True
+            logger.info(f"📊 TSL Order (MARKET): Side={side}, Amount={rounded_amount}, Activation={rounded_activation}, Callback={callback_rate_percent}%")
             
-            # Bitget Trailing Stop Orders
+            # Erstelle Order mit Market-Typ und Bitget TSL Parametern
             order = self._with_retry(
                 self.exchange.create_order,
                 symbol,
@@ -267,14 +277,14 @@ class Exchange:
                 side,
                 rounded_amount,
                 None,
-                params=params
+                params=order_params
             )
             
-            logger.info(f"✅ Trailing Stop Order erstellt: {side.upper()} {rounded_amount} @ {callback_rate*100:.2f}% Trail")
+            logger.info(f"✅ Trailing Stop Order platziert: {side.upper()} {rounded_amount}")
             return order
             
         except Exception as e:
-            logger.error(f"❌ place_trailing_stop_order Error: {e}")
+            logger.error(f"❌ place_trailing_stop_order Error: {e}", exc_info=True)
             return None
     
     def fetch_open_trigger_orders(self, symbol: str) -> List[Dict]:

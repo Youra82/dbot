@@ -247,14 +247,17 @@ class ScalperEngine:
                     reduce_only=True
                 )
                 
-                # 3. Set native Bitget Trailing Stop (mit Callback Rate)
-                callback_rate = self.trading_params['trailing_stop_distance_percent'] / 100
+                # 3. Set native Bitget Trailing Stop (mit Callback Rate & Activation Price)
+                # Trailing Stop wird AKTIV wenn Preis SL um trailing_activation_rr erreicht
+                trailing_activation_price = current_price * (1 + (self.trading_params['trailing_stop_activation_rr'] * sl_percent))
+                callback_rate_decimal = self.trading_params['trailing_stop_distance_percent'] / 100
+                
                 trailing_order = self.exchange.place_trailing_stop_order(
                     symbol=self.symbol,
                     side='sell',
                     amount=amount,
-                    callback_rate=callback_rate,
-                    reduce_only=True
+                    activation_price=trailing_activation_price,
+                    callback_rate_decimal=callback_rate_decimal
                 )
                 
                 self.stop_loss = sl_price
@@ -266,7 +269,7 @@ class ScalperEngine:
                 print(f"   Amount: {amount:.4f}")
                 print(f"   Leverage: {leverage}x")
                 print(f"   SL Order: {sl_price:.2f} (-{self.trading_params['stop_loss_percent']}%)")
-                print(f"   Trailing SL: {callback_rate*100:.2f}% Callback (Bitget Native)")
+                print(f"   Trailing SL: Activation @ {trailing_activation_price:.2f}, Callback {callback_rate_decimal*100:.2f}% (Bitget Native)")
                 print(f"   TP: {tp_price:.2f} (+{self.trading_params['take_profit_percent']}%)")
                 
                 if self.notifier:
@@ -322,14 +325,17 @@ class ScalperEngine:
                     reduce_only=True
                 )
                 
-                # 3. Set native Bitget Trailing Stop (mit Callback Rate)
-                callback_rate = self.trading_params['trailing_stop_distance_percent'] / 100
+                # 3. Set native Bitget Trailing Stop (mit Callback Rate & Activation Price)
+                # Trailing Stop wird AKTIV wenn Preis SL um trailing_activation_rr erreicht
+                trailing_activation_price = current_price * (1 - (self.trading_params['trailing_stop_activation_rr'] * sl_percent))
+                callback_rate_decimal = self.trading_params['trailing_stop_distance_percent'] / 100
+                
                 trailing_order = self.exchange.place_trailing_stop_order(
                     symbol=self.symbol,
                     side='buy',
                     amount=amount,
-                    callback_rate=callback_rate,
-                    reduce_only=True
+                    activation_price=trailing_activation_price,
+                    callback_rate_decimal=callback_rate_decimal
                 )
                 
                 self.stop_loss = sl_price
@@ -341,7 +347,7 @@ class ScalperEngine:
                 print(f"   Amount: {amount:.4f}")
                 print(f"   Leverage: {leverage}x")
                 print(f"   SL Order: {sl_price:.2f} (+{self.trading_params['stop_loss_percent']}%)")
-                print(f"   Trailing SL: {callback_rate*100:.2f}% Callback (Bitget Native)")
+                print(f"   Trailing SL: Activation @ {trailing_activation_price:.2f}, Callback {callback_rate_decimal*100:.2f}% (Bitget Native)")
                 print(f"   TP: {tp_price:.2f} (-{self.trading_params['take_profit_percent']}%)")
                 
                 if self.notifier:
