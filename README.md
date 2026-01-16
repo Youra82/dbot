@@ -19,7 +19,7 @@
 
 ## 📊 Übersicht
 
-DBot ist ein **hochaggressiver Scalping-Bot**, der auf ultra-kurzen Timeframes (1m, 5m) mit moderatem Leverage (5-10x) tradet. Die Strategie nutzt schnelle Momentum-Breakouts mit sofortigen Ein- und Ausstiegen.
+DBot ist ein **hochaggressiver Scalping-Bot** auf ultra-kurzen Timeframes (1m, 5m) mit moderatem Leverage (5-10x). Entry-Signale kommen aus einem ANN-Momentum-Model (Feature-Set: Bollinger, MACD, ATR, ADX, EMA, Stoch, Volume), gefiltert durch SuperTrend-Richtung, Volumen- und ATR-Spikes; Optuna optimiert die Risk-Parameter.
 
 ### ⚡ Ziel: Maximale Rendite in kürzester Zeit
 
@@ -31,12 +31,12 @@ DBot ist ein **hochaggressiver Scalping-Bot**, der auf ultra-kurzen Timeframes (
 
 ### 🔍 Trading-Logik (Kurzfassung)
 
-- **Momentum Detection**: EMA-Crossovers + RSI + Volume-Spikes
-- **Breakout Trading**: Preis durchbricht Support/Resistance mit hohem Volumen
-- **Volatility Filter**: Nur Trades bei hoher ATR-Volatilität
-- **Quick Scalps**: Schnelle 2-5% Gewinne, 1% Stop Loss
-- **Trailing Stop**: Nach 1.5x Risk wird SL nachgezogen
-- **Multi-Asset**: BTC, ETH, SOL gleichzeitig
+- **ANN Momentum Predictor**: Features (Bollinger, MACD, ATR, ADX, EMA, Stoch, Volume)
+- **Trend-/Momentum-Filter**: SuperTrend-Richtung, ADX-Mindestwert, Volume-Spikes, ATR-Volatilität
+- **Breakout Bias**: Preis relativ zu Support/Resistance (Feature-basiert im ANN)
+- **Quick Scalps**: Ziel-RR ≈ 1:3, SL ca. 1%, TP 2-5%, Trailing ab ~1.5x Risk
+- **Multi-Asset**: BTC, ETH, SOL parallel
+- **Optuna-Optimierung**: Enger Scalping-Suchraum (Risk 8-12%, Lev 5-10, enges SL/TSL)
 
 ### 🎯 Strategie-Visualisierung
 
