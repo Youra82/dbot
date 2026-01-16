@@ -173,11 +173,27 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
     print(f"  DEBUG: First signal timestamp: {all_signals[0]['timestamp']}")
     print(f"  DEBUG: Last signal timestamp: {all_signals[-1]['timestamp']}")
 
+    # Normalisiere Signal-Timestamps auf UTC ohne Timezone für Vergleich
+    for sig in all_signals:
+        ts_obj = pd.to_datetime(sig['timestamp'])
+        if ts_obj.tz is not None:
+            ts_obj = ts_obj.tz_convert('UTC').tz_localize(None)
+        sig['timestamp_normalized'] = ts_obj
+
     # Kombiniere alle Timeframes für die Equity Curve
     all_timestamps = set()
     for key, strat in strategies_data.items():
         all_timestamps.update(strat['data'].index)
     sorted_timestamps = sorted(list(all_timestamps))
+    
+    # Normalisiere auch all_timestamps
+    sorted_timestamps_normalized = []
+    for ts in sorted_timestamps:
+        if hasattr(ts, 'tz') and ts.tz is not None:
+            ts_norm = ts.tz_convert('UTC').tz_localize(None)
+        else:
+            ts_norm = pd.to_datetime(ts)
+        sorted_timestamps_normalized.append(ts_norm)
 
     # --- 3. Chronologische Simulation (mit TSL-Logik) ---
     print("3/4: Führe chronologische Backtests durch...")
@@ -199,7 +215,7 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
     min_notional = 5.0
 
     signal_idx = 0
-    for ts in tqdm(sorted_timestamps, desc="Simuliere Portfolio"):
+    for ts in tqdm(sorted_timestamps_normalized, desc="Simuliere Portfolio"):
         if liquidation_date:
             break
 
@@ -211,10 +227,17 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
         for key in list(open_positions.keys()):
             pos = open_positions[key]
             strat_data = strategies_data.get(pos['symbol_key'])
-            if not strat_data or ts not in strat_data['data'].index:
+            if not strat_data:
                 continue
-
-            current_candle = strat_data['data'].loc[ts]
+            
+            # Suche den Candle mit dem closest matching timestamp
+            try:
+                if ts in strat_data['data'].index:
+                    current_candle = strat_data['data'].loc[ts]
+                else:
+                    continue
+            except Exception:
+                continue
             pos['last_known_price'] = current_candle['close']
             exit_price = None
 
@@ -273,7 +296,7 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
             del open_positions[key]
 
         # --- 3b. Neue Signale prüfen und Positionen eröffnen ---
-        while signal_idx < len(all_signals) and all_signals[signal_idx]['timestamp'] == ts:
+        while signal_idx < len(all_signals) and all_signals[signal_idx]['timestamp_normalized'] == ts:
             signal = all_signals[signal_idx]
             symbol_key = signal['symbol']
             config_key = signal['config_key']
