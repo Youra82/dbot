@@ -1,32 +1,53 @@
 {
   "live_trading_settings": {
-    "use_auto_optimizer_results": false,
+    "use_auto_optimizer_results": true,
     "active_strategies": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "1m",
+        "use_momentum_filter": true,
+        "active": true,
+        "comment": "Ultra-short scalping BTC 1m"
+      },
+      {
+        "symbol": "ETH/USDT:USDT",
+        "timeframe": "1m",
+        "use_momentum_filter": true,
+        "active": true,
+        "comment": "Ultra-short scalping ETH 1m"
+      },
+      {
+        "symbol": "SOL/USDT:USDT",
+        "timeframe": "1m",
+        "use_momentum_filter": true,
+        "active": true,
+        "comment": "Ultra-short scalping SOL 1m"
+      },
       {
         "symbol": "BTC/USDT:USDT",
         "timeframe": "5m",
         "use_momentum_filter": true,
         "active": true,
-        "comment": "Aggressive Scalping (BTCUSDTUSDT 5m)"
+        "comment": "Aggressive scalping BTC 5m"
       },
       {
         "symbol": "ETH/USDT:USDT",
         "timeframe": "5m",
         "use_momentum_filter": true,
         "active": true,
-        "comment": "Aggressive Scalping (ETHUSDTUSDT 5m)"
+        "comment": "Aggressive scalping ETH 5m"
       },
       {
         "symbol": "SOL/USDT:USDT",
         "timeframe": "5m",
         "use_momentum_filter": true,
         "active": true,
-        "comment": "Aggressive Scalping (SOLUSDTUSDT 5m)"
+        "comment": "Aggressive scalping SOL 5m"
       }
     ]
   },
   "trading_parameters": {
-    "leverage": 5,
+    "leverage": 8,
     "max_open_positions": 3,
     "risk_per_trade_percent": 10,
     "stop_loss_percent": 1.0,
