@@ -6,7 +6,12 @@ echo "--- Sicheres Update wird ausgeführt (Robuste Version) ---"
 
 # 1. Sichere die einzige Datei, die lokal wichtig ist
 echo "1. Erstelle ein Backup von 'secret.json'..."
-cp secret.json secret.json.bak
+if [ -f secret.json ]; then
+    cp secret.json secret.json.bak
+    echo "✅ Backup erstellt."
+else
+    echo "⚠️  Keine secret.json gefunden, überspringe Backup."
+fi
 
 # 2. Hole die neuesten Daten von GitHub
 echo "2. Hole den neuesten Stand von GitHub..."
@@ -18,8 +23,13 @@ git reset --hard origin/main
 
 # 4. Stelle die API-Schlüssel aus dem Backup wieder her
 echo "4. Stelle den Inhalt von 'secret.json' aus dem Backup wieder her..."
-cp secret.json.bak secret.json
-rm secret.json.bak
+if [ -f secret.json.bak ]; then
+    cp secret.json.bak secret.json
+    rm secret.json.bak
+    echo "✅ secret.json wiederhergestellt."
+else
+    echo "⚠️  Kein Backup gefunden, verwende secret.json aus Repository."
+fi
 
 # 5. Lösche den Python-Cache, um alte Code-Versionen zu entfernen
 echo "5. Lösche alten Python-Cache für einen sauberen Neustart..."
