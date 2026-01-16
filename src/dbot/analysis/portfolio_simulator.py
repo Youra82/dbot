@@ -194,6 +194,17 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
         else:
             ts_norm = pd.to_datetime(ts)
         sorted_timestamps_normalized.append(ts_norm)
+    
+    print(f"  DEBUG: Sample timestamps from data index (first 3):")
+    for i, ts in enumerate(sorted_timestamps[:3]):
+        print(f"    [{i}] {ts} (type: {type(ts).__name__}, tz: {getattr(ts, 'tz', 'no tz')})")
+    print(f"  DEBUG: Sample normalized timestamps (first 3):")
+    for i, ts in enumerate(sorted_timestamps_normalized[:3]):
+        print(f"    [{i}] {ts} (type: {type(ts).__name__})")
+    print(f"  DEBUG: Sample signal timestamps (first 3):")
+    for i in range(min(3, len(all_signals))):
+        sig = all_signals[i]
+        print(f"    [{i}] {sig['timestamp']} -> {sig['timestamp_normalized']} (type: {type(sig['timestamp_normalized']).__name__})")
 
     # --- 3. Chronologische Simulation (mit TSL-Logik) ---
     print("3/4: Führe chronologische Backtests durch...")
@@ -296,7 +307,9 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
             del open_positions[key]
 
         # --- 3b. Neue Signale prüfen und Positionen eröffnen ---
+        sig_matches = 0
         while signal_idx < len(all_signals) and all_signals[signal_idx]['timestamp_normalized'] == ts:
+            sig_matches += 1
             signal = all_signals[signal_idx]
             symbol_key = signal['symbol']
             config_key = signal['config_key']
@@ -367,6 +380,9 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
             }
 
             signal_idx += 1
+        
+        if sig_matches > 0:
+            print(f"  DEBUG: Matched {sig_matches} signals at {ts}")
 
         # --- 3c. Equity Curve und Drawdown aktualisieren ---
         current_total_equity = equity + unrealized_pnl
