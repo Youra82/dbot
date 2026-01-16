@@ -1,0 +1,56 @@
+{
+  "live_trading_settings": {
+    "use_auto_optimizer_results": false,
+    "active_strategies": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "5m",
+        "use_momentum_filter": true,
+        "active": true,
+        "comment": "Aggressive Scalping (BTCUSDTUSDT 5m)"
+      },
+      {
+        "symbol": "ETH/USDT:USDT",
+        "timeframe": "5m",
+        "use_momentum_filter": true,
+        "active": true,
+        "comment": "Aggressive Scalping (ETHUSDTUSDT 5m)"
+      },
+      {
+        "symbol": "SOL/USDT:USDT",
+        "timeframe": "5m",
+        "use_momentum_filter": true,
+        "active": true,
+        "comment": "Aggressive Scalping (SOLUSDTUSDT 5m)"
+      }
+    ]
+  },
+  "trading_parameters": {
+    "leverage": 5,
+    "max_open_positions": 3,
+    "risk_per_trade_percent": 10,
+    "stop_loss_percent": 1.0,
+    "take_profit_percent": 3.0,
+    "trailing_stop_activation_rr": 1.5,
+    "trailing_stop_distance_percent": 0.5,
+    "min_volatility_atr_multiplier": 1.5,
+    "momentum_threshold": 60,
+    "volume_spike_multiplier": 1.5
+  },
+  "strategy_config": {
+    "rsi_period": 7,
+    "rsi_overbought": 70,
+    "rsi_oversold": 30,
+    "atr_period": 10,
+    "ema_fast": 8,
+    "ema_slow": 21,
+    "volume_ma_period": 10,
+    "breakout_lookback": 10
+  },
+  "exchange_settings": {
+    "exchange_id": "bitget",
+    "rate_limit_delay_ms": 100,
+    "retry_attempts": 3,
+    "timeout_ms": 30000
+  }
+}
