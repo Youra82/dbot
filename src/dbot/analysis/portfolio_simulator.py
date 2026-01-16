@@ -116,6 +116,18 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
         # Kombinierter Filter
         combined_filter = adx_filter & volume_filter & atr_filter
 
+        # DEBUG: Zeige Filterstatistiken
+        print(f"\n  DEBUG {symbol} ({timeframe}):")
+        print(f"    Prediction Range: {data_with_features['prediction'].min():.3f} - {data_with_features['prediction'].max():.3f}")
+        print(f"    Predictions >= {pred_threshold}: {(data_with_features['prediction'] >= pred_threshold).sum()}")
+        print(f"    Predictions <= {1-pred_threshold}: {(data_with_features['prediction'] <= (1-pred_threshold)).sum()}")
+        print(f"    ADX >= {min_adx}: {adx_filter.sum()}")
+        print(f"    Volume Filter passed: {volume_filter.sum()}")
+        print(f"    ATR Filter passed: {atr_filter.sum()}")
+        print(f"    Combined Filter passed: {combined_filter.sum()}")
+        print(f"    SuperTrend Long (1.0): {(data_with_features['st_direction'] == 1.0).sum()}")
+        print(f"    SuperTrend Short (-1.0): {(data_with_features['st_direction'] == -1.0).sum()}")
+
         # Generiere Signale basierend auf ANN-Prediction
         long_condition = (data_with_features['prediction'] >= pred_threshold) & combined_filter
         short_condition = (data_with_features['prediction'] <= (1 - pred_threshold)) & combined_filter
