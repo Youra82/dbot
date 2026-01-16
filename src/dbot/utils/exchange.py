@@ -78,6 +78,61 @@ class Exchange:
         except Exception as e:
             logger.error(f"❌ fetch_ohlcv Error: {e}")
             return []
+
+    def fetch_historical_ohlcv(self, symbol: str, timeframe: str, start_date: str, end_date: str):
+        """
+        Hole historische OHLCV Daten zwischen start_date und end_date.
+        Gibt ein pandas DataFrame mit Spalten: timestamp, open, high, low, close, volume
+        """
+        import pandas as pd
+        from datetime import datetime
+
+        if timeframe not in self.SUPPORTED_TIMEFRAMES:
+            raise ValueError(f"Timeframe {timeframe} nicht unterstützt")
+
+        # Parse dates
+        start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
+        end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
+
+        # Timeframe in Millisekunden
+        tf_ms = {
+            '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000,
+            '1h': 3600000, '2h': 7200000, '4h': 14400000, '6h': 21600000,
+            '12h': 43200000, '1d': 86400000
+        }
+        step = tf_ms.get(timeframe, 3600000) * 1000  # 1000 candles per request
+
+        all_data = []
+        current_ts = start_ts
+
+        while current_ts < end_ts:
+            try:
+                data = self._with_retry(
+                    self.exchange.fetch_ohlcv,
+                    symbol,
+                    timeframe,
+                    since=current_ts,
+                    limit=1000
+                )
+                if not data:
+                    break
+                all_data.extend(data)
+                current_ts = data[-1][0] + tf_ms.get(timeframe, 3600000)
+                if current_ts >= end_ts:
+                    break
+            except Exception as e:
+                logger.error(f"❌ fetch_historical_ohlcv Error: {e}")
+                break
+
+        if not all_data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+        df.set_index('timestamp', inplace=True)
+        df = df[~df.index.duplicated(keep='first')]
+        df = df.loc[start_date:end_date]
+        return df
     
     def fetch_ticker(self, symbol: str) -> Optional[Dict]:
         """Hole aktuellen Ticker"""
