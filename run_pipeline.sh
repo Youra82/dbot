@@ -1,6 +1,6 @@
 #!/bin/bash
-# Sofortiger Abbruch bei schwerwiegenden Fehlern
-set -e
+# Sofortiger Abbruch deaktiviert, Fehler werden pro Stufe abgefangen
+set +e
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -11,6 +11,13 @@ NC='\033[0m'
 echo -e "${BLUE}======================================================="
 echo "   DBot Vollautomatische 3-Stufen-Pipeline"
 echo -e "=======================================================${NC}"
+
+# --- Prereq-Check: bc für Float-Vergleiche ---
+BC_MISSING=false
+if ! command -v bc >/dev/null 2>&1; then
+    BC_MISSING=true
+    echo -e "${YELLOW}Warnung:${NC} 'bc' nicht gefunden. Fallback auf Python für Vergleichs-Checks."
+fi
 
 # --- Pfade definieren ---
 VENV_PATH=".venv/bin/activate"
@@ -78,12 +85,26 @@ for symbol in $SYMBOLS; do
             fi
             echo -e "\n${BLUE}=======================================================${NC}"; echo -e "${BLUE}  Bearbeite Pipeline für: $symbol ($timeframe) - VERSUCH $i/3${NC}"; echo -e "${BLUE}  Datenzeitraum: $CURRENT_START_DATE bis $CURRENT_END_DATE${NC}"; echo -e "${BLUE}=======================================================${NC}"
 
-            echo -e "\n${GREEN}>>> STUFE 1/3: Starte Modelltraining...${NC}"; TRAINER_OUTPUT=$(python3 "$TRAINER" --symbols "$symbol" --timeframes "$timeframe" --start_date "$CURRENT_START_DATE" --end_date "$END_DATE" 2>&1); echo "$TRAINER_OUTPUT"
+            echo -e "\n${GREEN}>>> STUFE 1/3: Starte Modelltraining...${NC}"; TRAINER_OUTPUT=$(python3 "$TRAINER" --symbols "$symbol" --timeframes "$timeframe" --start_date "$CURRENT_START_DATE" --end_date "$END_DATE" 2>&1); TRAINER_STATUS=$?; echo "$TRAINER_OUTPUT"
+            if [ $TRAINER_STATUS -ne 0 ]; then echo -e "${YELLOW}Versuch $i nicht erfolgreich (Trainer Fehlercode $TRAINER_STATUS).${NC}"; continue; fi
             MODEL_ACCURACY=$(echo "$TRAINER_OUTPUT" | awk '/Modell-Genauigkeit auf Testdaten:/ {gsub(/%/, ""); print $NF}');
-            if [[ -z "$MODEL_ACCURACY" ]] || ! (( $(echo "$MODEL_ACCURACY >= $MIN_ACCURACY" | bc -l) )); then echo -e "${YELLOW}Versuch $i nicht erfolgreich (Modell-Qualität unzureichend).${NC}"; continue; fi
+            if [[ -z "$MODEL_ACCURACY" ]]; then echo -e "${YELLOW}Versuch $i nicht erfolgreich (Keine Modell-Genauigkeit gefunden).${NC}"; continue; fi
+            IS_OK=0
+            if [ "$BC_MISSING" = true ]; then
+                python3 - "$MODEL_ACCURACY" "$MIN_ACCURACY" <<'PY'
+import sys
+acc=float(sys.argv[1]); minacc=float(sys.argv[2]);
+sys.exit(0 if acc>=minacc else 1)
+PY
+                IS_OK=$?
+            else
+                echo "$MODEL_ACCURACY >= $MIN_ACCURACY" | bc -l >/dev/null 2>&1; IS_OK=$?
+            fi
+            if [ $IS_OK -ne 0 ]; then echo -e "${YELLOW}Versuch $i nicht erfolgreich (Modell-Qualität ${MODEL_ACCURACY}% < ${MIN_ACCURACY}%).${NC}"; continue; fi
             echo -e "${GREEN}✔ Qualitätscheck bestanden (${MODEL_ACCURACY}%).${NC}"
 
-            echo -e "\n${GREEN}>>> STUFE 2/3: Suche besten Threshold...${NC}"; THRESHOLD_OUTPUT=$(python3 "$THRESHOLD_FINDER" --symbol "$symbol" --timeframe "$timeframe" --start_date "$CURRENT_START_DATE" --end_date "$END_DATE"); BEST_THRESHOLD=$(echo "$THRESHOLD_OUTPUT" | tail -n 1)
+            echo -e "\n${GREEN}>>> STUFE 2/3: Suche besten Threshold...${NC}"; THRESHOLD_OUTPUT=$(python3 "$THRESHOLD_FINDER" --symbol "$symbol" --timeframe "$timeframe" --start_date "$CURRENT_START_DATE" --end_date "$END_DATE" 2>&1); THRESHOLD_STATUS=$?; echo "$THRESHOLD_OUTPUT"; BEST_THRESHOLD=$(echo "$THRESHOLD_OUTPUT" | tail -n 1)
+            if [ $THRESHOLD_STATUS -ne 0 ]; then echo -e "${YELLOW}Versuch $i nicht erfolgreich (Threshold Finder Fehlercode $THRESHOLD_STATUS).${NC}"; continue; fi
             if ! [[ "$BEST_THRESHOLD" =~ ^[0-9]+\.[0-9]+$ ]]; then echo -e "${YELLOW}Versuch $i nicht erfolgreich (Kein Threshold gefunden).${NC}"; continue; fi
             echo -e "${GREEN}✔ Bester Threshold auf ${BEST_THRESHOLD} gesetzt.${NC}"
 
