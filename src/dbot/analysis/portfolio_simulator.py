@@ -137,6 +137,9 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
             long_condition = long_condition & (data_with_features['st_direction'] == 1.0)
             short_condition = short_condition & (data_with_features['st_direction'] == -1.0)
         
+        print(f"    Final Long Signals: {long_condition.sum()}")
+        print(f"    Final Short Signals: {short_condition.sum()}")
+        
         long_signals_filtered = data_with_features[long_condition]
         short_signals_filtered = data_with_features[short_condition]
 
@@ -165,7 +168,10 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
             "equity_curve": pd.DataFrame({'timestamp': [datetime.strptime(start_date, "%Y-%m-%d")], 'equity': [start_capital], 'drawdown_pct': [0.0]})
         }
 
+    print(f"  DEBUG: Total Signals collected: {len(all_signals)}")
     all_signals.sort(key=lambda x: x['timestamp'])
+    print(f"  DEBUG: First signal timestamp: {all_signals[0]['timestamp']}")
+    print(f"  DEBUG: Last signal timestamp: {all_signals[-1]['timestamp']}")
 
     # Kombiniere alle Timeframes für die Equity Curve
     all_timestamps = set()
