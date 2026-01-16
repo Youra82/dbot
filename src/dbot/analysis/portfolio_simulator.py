@@ -308,6 +308,8 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
 
         # --- 3b. Neue Signale prüfen und Positionen eröffnen ---
         sig_matches = 0
+        sig_opens = 0
+        sig_skips = {'position_exists': 0, 'no_equity': 0, 'bad_sl': 0, 'min_notional': 0, 'margin': 0}
         while signal_idx < len(all_signals) and all_signals[signal_idx]['timestamp_normalized'] == ts:
             sig_matches += 1
             signal = all_signals[signal_idx]
@@ -317,10 +319,12 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
             pos_key = f"{symbol_key}_{signal['timeframe']}"
 
             if pos_key in open_positions:
+                sig_skips['position_exists'] += 1
                 signal_idx += 1
                 continue
 
             if equity <= 0:
+                sig_skips['no_equity'] += 1
                 signal_idx += 1
                 continue
 
@@ -339,6 +343,7 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
 
             sl_distance = entry_price * initial_sl_pct
             if sl_distance <= 0:
+                sig_skips['bad_sl'] += 1
                 signal_idx += 1
                 continue
 
@@ -348,12 +353,14 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
             final_notional_value = min(notional_value, max_notional_by_leverage, absolute_max_notional_value)
 
             if final_notional_value < min_notional:
+                sig_skips['min_notional'] += 1
                 signal_idx += 1
                 continue
 
             margin_used = final_notional_value / leverage
             current_total_margin = sum(p['margin_used'] for p in open_positions.values())
             if current_total_margin + margin_used > equity:
+                sig_skips['margin'] += 1
                 signal_idx += 1
                 continue
 
@@ -378,11 +385,11 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
                 'risk_per_trade_pct': risk_per_trade_pct,
                 'risk_reward_ratio': risk_reward_ratio
             }
-
+            sig_opens += 1
             signal_idx += 1
         
         if sig_matches > 0:
-            print(f"  DEBUG: Matched {sig_matches} signals at {ts}")
+            print(f"  DEBUG: Matched {sig_matches} signals at {ts} | Opens: {sig_opens} | Skipped: {sig_skips}")
 
         # --- 3c. Equity Curve und Drawdown aktualisieren ---
         current_total_equity = equity + unrealized_pnl
