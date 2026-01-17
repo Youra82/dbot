@@ -14,6 +14,7 @@ sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 from dbot.utils.exchange import Exchange
 from dbot.strategy.sr_engine import SREngine
 from dbot.strategy.trade_logic import get_titan_signal
+from dbot.strategy.aggressive_scalper import get_scalp_signal
 
 
 class Bias:
@@ -166,48 +167,42 @@ def simulate_smc_backtest(df, params):
 
         # Entry-Signal prüfen wenn frei
         if position is None:
-            signal_side, signal_price = get_titan_signal(processed, current_candle, params, Bias.NEUTRAL)
+            # Nutze aggressive Scalper Strategie statt SR-Engine
+            signal_side, signal_price, confidence = get_scalp_signal(window, params)
+            
             if signal_side:
                 entry_price = signal_price or current['close']
                 current_atr = current_candle.get('atr') or current.get('atr')
                 if pd.isna(current_atr) or current_atr <= 0:
+                    if idx < lookback + 50:
+                        print(f"  [SKIP] ATR invalid: {current_atr}", flush=True)
                     continue
 
-                # Dynamische Anpassung
-                leverage = base_leverage
-                risk_per_trade = base_risk_per_trade
-                atr_avg = processed['atr'].tail(50).mean()
-                if dynamic_enabled and atr_avg and atr_avg > 0:
-                    vol_ratio = current_atr / atr_avg
-                    if vol_ratio >= high_vol_threshold:
-                        leverage = max(1, base_leverage * high_vol_leverage_scale)
-                        risk_per_trade = max(min_risk_per_trade_pct, base_risk_per_trade * high_vol_risk_scale)
-                    elif vol_ratio <= low_vol_threshold:
-                        leverage = max(1, base_leverage * low_vol_leverage_scale)
-                        risk_per_trade = base_risk_per_trade * low_vol_risk_scale
-
-                sl_distance_atr = current_atr * atr_mult
-                sl_distance_min = entry_price * min_sl_pct
-                sl_distance = max(sl_distance_atr, sl_distance_min)
+                # Für Scalping: EINFACHE Position-Sizing Logik
+                # Ziel: max 5% des Equity pro Trade
+                leverage = 2.0  # Konservativ für Scalping
+                max_risk_pct = 0.05  # 5% max loss per trade
+                max_notional = equity * leverage
+                
+                # SL basierend auf ATR aber KLEIN für Scalping
+                sl_distance = max(current_atr * 0.5, entry_price * 0.002)  # Min 0.2% SL
                 if sl_distance <= 0:
                     continue
-                risk_usd = equity * risk_per_trade
-                sl_pct = sl_distance / entry_price
-                notional = risk_usd / sl_pct
-                margin = notional / leverage
-                if margin > equity or notional <= 0:
-                    continue
-                amount = notional / entry_price
-                if amount <= 0:
+                
+                # Vereinfachte Notional: darf nicht größer als 5% vom Equity*leverage sein
+                notional = min(equity * 0.5, (equity * max_risk_pct) / (sl_distance / entry_price) * 10)
+                notional = min(notional, max_notional)  # Cap bei Leverage
+                
+                if notional <= 0:
                     continue
                 if signal_side == 'buy':
                     sl_price = entry_price - sl_distance
-                    tp_price = entry_price + sl_distance * rr
-                    activation_price = entry_price + sl_distance * act_rr
+                    tp_price = entry_price + sl_distance * 3.0  # 1:3 RR Ratio
+                    activation_price = entry_price + sl_distance * 1.5
                 else:
                     sl_price = entry_price + sl_distance
-                    tp_price = entry_price - sl_distance * rr
-                    activation_price = entry_price - sl_distance * act_rr
+                    tp_price = entry_price - sl_distance * 3.0  # 1:3 RR Ratio
+                    activation_price = entry_price - sl_distance * 1.5
 
                 position = {
                     'side': 'long' if signal_side == 'buy' else 'short',
@@ -250,12 +245,12 @@ def main():
     parser.add_argument('--timeframe', required=True)
     parser.add_argument('--start_date', required=True)
     parser.add_argument('--end_date', required=True)
-    parser.add_argument('--leverage', type=float, default=8.0)
-    parser.add_argument('--risk_per_trade', type=float, default=0.12, help='Dezimal, z.B. 0.12 = 12%')
+    parser.add_argument('--leverage', type=float, default=3.0)
+    parser.add_argument('--risk_per_trade', type=float, default=0.02, help='Dezimal, z.B. 0.02 = 2%')
     parser.add_argument('--fee_pct', type=float, default=0.0005)
-    parser.add_argument('--atr_multiplier_sl', type=float, default=1.0)
-    parser.add_argument('--min_sl_pct', type=float, default=0.003)
-    parser.add_argument('--risk_reward_ratio', type=float, default=2.5)
+    parser.add_argument('--atr_multiplier_sl', type=float, default=0.5)
+    parser.add_argument('--min_sl_pct', type=float, default=0.001)
+    parser.add_argument('--risk_reward_ratio', type=float, default=1.5)
     parser.add_argument('--trailing_stop_activation_rr', type=float, default=1.5)
     parser.add_argument('--trailing_stop_callback_rate_pct', type=float, default=0.5)
     parser.add_argument('--start_capital', type=float, default=1000.0)
