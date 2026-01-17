@@ -1,17 +1,17 @@
-# 🚀 DBot - High-Frequency Momentum Scalper
+# 🚀 DBot - Aggressive Scalping Trading Bot
 
 <div align="center">
 
-![DBot Logo](https://img.shields.io/badge/DBot-v1.0-red?style=for-the-badge)
+![DBot Logo](https://img.shields.io/badge/DBot-Aggressive-red?style=for-the-badge)
 [![Python](https://img.shields.io/badge/Python-3.8+-green?style=for-the-badge&logo=python)](https://www.python.org/)
 [![CCXT](https://img.shields.io/badge/CCXT-4.3.5-red?style=for-the-badge)](https://github.com/ccxt/ccxt)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-**Ein aggressiver Ultra-Short-Timeframe Momentum Scalper für maximale Rendite in kürzester Zeit**
+**⚡ Ein aggressiver High-Frequency Scalper für maximale Rendite auf Ultra-Short Timeframes (1m, 5m)**
 
-⚠️ **HOCHRISIKO-STRATEGIE** ⚠️
+⚠️ **HOCHRISIKO-STRATEGIE - NUR FÜR ERFAHRENE TRADER** ⚠️
 
-[Features](#-features) • [Installation](#-installation) • [Live-Trading](#-live-trading) • [Monitoring](#-monitoring--status) • [Risiken](#%EF%B8%8F-wichtige-hinweise)
+[Features](#-features) • [Installation](#-installation) • [Konfiguration](#-konfiguration) • [Live-Trading](#-live-trading) • [Risiken](#️-wichtige-risiko-hinweise)
 
 </div>
 
@@ -19,189 +19,222 @@
 
 ## 📊 Übersicht
 
-DBot ist ein **hochaggressiver Scalping-Bot** auf ultra-kurzen Timeframes (1m, 5m) mit moderatem Leverage (5-10x). Entry-Signale kommen aus einem ANN-Momentum-Model (Feature-Set: Bollinger, MACD, ATR, ADX, EMA, Stoch, Volume), gefiltert durch SuperTrend-Richtung, Volumen- und ATR-Spikes; Optuna optimiert die Risk-Parameter.
+**DBot** ist ein hochaggressiver Scalping-Bot basierend auf der bewährten **StBot-Architektur**, aber spezialisiert auf **Ultra-Short Timeframes** (1m, 5m) mit **moderatem bis hohem Leverage** (5-10x) für maximale Rendite in kürzester Zeit.
 
-### ⚡ Ziel: Maximale Rendite in kürzester Zeit
+### ⚡ Kerncharakteristiken
 
-- **Aggressive Position Sizing**: 10% Risk pro Trade
-- **Leverage Trading**: 5-10x Hebel für maximale Rendite
-- **Ultra-Short Timeframes**: 1m/5m für viele Trades pro Tag
-- **Quick Exits**: TP bei 2-5%, SL bei 1% (Risk-Reward 1:3)
-- **24/7 Trading**: Bot läuft rund um die Uhr
+- **Ultra-Short Timeframes**: 1m und 5m für viele Trades pro Stunde
+- **Breakout-Basiert**: SMC-inspirierte Support/Resistance-Zonen + Volumen-Validierung  
+- **Aggressive Parameter**: 
+  - **Risk pro Trade**: 10-20% des Kontos
+  - **Leverage**: 5-10x für maximale Rendite
+  - **TP/SL Ratio**: 1:2 bis 1:3
+- **24/7 Automation**: Läuft rund um die Uhr ohne manuelle Intervention
+- **MTF-Bias**: Höhere Timeframes geben Trend-Richtung vor
+- **Telegram-Alerts**: Live-Benachrichtigungen für jeden Trade
 
-### 🔍 Trading-Logik (Kurzfassung)
+### 🎯 Trading-Logik (Kurzfassung)
 
-- **ANN Momentum Predictor**: Features (Bollinger, MACD, ATR, ADX, EMA, Stoch, Volume)
-- **Trend-/Momentum-Filter**: SuperTrend-Richtung, ADX-Mindestwert, Volume-Spikes, ATR-Volatilität
-- **Breakout Bias**: Preis relativ zu Support/Resistance (Feature-basiert im ANN)
-- **Quick Scalps**: Ziel-RR ≈ 1:3, SL ca. 1%, TP 2-5%, Trailing ab ~1.5x Risk
-- **Multi-Asset**: BTC, ETH, SOL parallel
-- **Optuna-Optimierung**: Enger Scalping-Suchraum (Risk 8-12%, Lev 5-10, enges SL/TSL)
+1. **Signal-Engine**: Erkennt Breakouts an dynamischen S/R-Zonen (ähnlich StBot SMC)
+2. **Volume-Filter**: Nur bei Volumen-Spikes traden (verhindert Fakeouts)
+3. **Entry**: Auf Breakout-Close über Resistance / unter Support
+4. **Stop-Loss**: Unter letztem Lower Low (für Longs) / ATR-basiert
+5. **Take-Profit**: 2-5% schnelle Gewinne (maximaler Leverage-Profit)
+6. **Trailing**: Nach +50% der SL-Distanz einen Trailing-Stop setzen
 
-### 🎯 Strategie-Visualisierung (ANN-Scalper)
+### 📈 Beispiel Trade (5m Timeframe)
 
-```mermaid
-flowchart LR
-  A["OHLCV (1m/5m)"]
-  B["Feature-Engineering<br/>Bollinger/MACD/ATR/ADX/EMA/Stoch/Volume"]
-  C["ANN Predictor<br/>Long/Short-Score"]
-  D["Filter<br/>SuperTrend-Richtung<br/>ADX >= Min<br/>Volume-Spike<br/>ATR-Bedarf"]
-  E["Risk Setup<br/>RR ≈ 1:3<br/>SL ≈1% / TP 2-5%<br/>Trailing ab ~1.5x"]
-  F["Order (CCXT)"]
-
-  A --> B --> C --> D --> E --> F
 ```
+Setup:
+- ETH/USDT konsolidiert unter Resistance bei 2500 USDT
+- Volumen nimmt zu
+- Tagestren ist BULLISH (EMA20 > EMA50)
 
-### 📈 Trade-Beispiel (LONG)
+Entry:
+- Kerze schließt über 2500 → BUY mit 10x Leverage
+- Position Size: 10% Risk = ~$100 bei $1000 Konto
 
-**Setup**:
-- EMA8 kreuzt über EMA21 (Uptrend)
-- RSI > 50 (Momentum)
-- Preis bricht über 10-Kerzen Resistance
-- Volume > 1.5x Average
+Stop-Loss & Take-Profit:
+- SL: 20 USDT (unter Resistance) = -0.8% = -$8 Verlust
+- TP: +60 USDT (3x SL) = +2.4% = +$24 Gewinn
+- Risk:Reward = 1:3
 
-**Execution**:
-- **Entry**: 45,000 USDT (Market Order)
-- **Amount**: 0.1 BTC (mit 5x Leverage = 0.5 BTC Exposure)
-- **SL**: 44,550 USDT (-1%)
-- **TP**: 46,350 USDT (+3%)
-- **Trailing**: Nach +1.5% wird SL auf +0.5% gesetzt
+Ausstieg:
+- Trailing aktiviert bei +$12 Gewinn
+- Bei neuem Lower Low ausgestopped
 
-**Ergebnis**: +3% = +15% mit 5x Leverage (bei Erfolg)
+Dauer: 3-15 Minuten
+```
 
 ---
 
 ## 🚀 Features
 
 ### Trading Features
-- ⚡ **Ultra-Fast Scalping** - 1m/5m Timeframes
-- 🎯 **Momentum Breakouts** - EMA + RSI + Volume
-- 📊 **Multi-Asset Trading** - BTC, ETH, SOL
-- 💪 **Leverage Trading** - 5-10x Hebel
-- 🛡️ **Risk Management** - Strikte SL/TP + Trailing
-- 📱 **Telegram Alerts** - Sofort-Benachrichtigungen
-- 🔄 **24/7 Automated** - Keine Ausfallzeit
+- ✅ **Multi-Asset Aggressive Scalping** (BTC, ETH, SOL, DOGE, XRP, ADA, AAVE)
+- ✅ **Ultra-Short Timeframes** (1m, 5m)
+- ✅ **SMC-inspirierte Breakout-Strategie** mit Volumen-Validierung
+- ✅ **Höchste Leverage** (5-10x möglich)
+- ✅ **Aggressive Position-Sizing** (10-20% Risk pro Trade)
+- ✅ **Quick TP/SL** (2-5% TP, 0.5-1% SL)
+- ✅ **Trailing Stop Management**
+- ✅ **MTF-Bias-Filter** (Trend von 4h/1d)
+- ✅ **Automatische Trade-Verwaltung**
+- ✅ **Telegram-Benachrichtigungen** in Echtzeit
 
 ### Technical Features
-- ✅ CCXT Integration (Bitget)
-- ✅ Real-time Market Data
-- ✅ Position Management
-- ✅ Robust Error Handling
-- ✅ Comprehensive Logging
-- ✅ Automated Execution
+- ✅ **StBot-Architektur** (bewährte & stabile Basis)
+- ✅ **CCXT Integration** (15+ Börsen supportiert)
+- ✅ **Robustes Error-Handling** & Fallback-Mechanismen
+- ✅ **Technische Indikatoren** (RSI, MACD, ATR, Bollinger Bands, SMC)
+- ✅ **Walk-Forward-Testing** möglich
+- ✅ **Docker-Ready** für 24/7 Deployment
 
 ---
 
 ## 📋 Systemanforderungen
 
 ### Hardware
-- **CPU**: Dual-Core+
-- **RAM**: 2GB+
-- **Speicher**: 500MB
-- **Internet**: Stabile Verbindung (wichtig!)
+- **CPU**: Dual-Core Prozessor
+- **RAM**: Minimum 2GB, empfohlen 4GB+
+- **Internet**: Stabile und schnelle Verbindung (für 1m Trades kritisch!)
+- **Betriebssystem**: Linux (empfohlen), macOS oder Windows
 
 ### Software
-- **OS**: Linux (Ubuntu 20.04+), macOS, Windows 10/11
-- **Python**: 3.8+
-- **Git**: Für Repository-Verwaltung
+- **Python**: 3.8 oder höher
+- **Git**: Für Installation und Updates
+- **Virtual Environment**: Empfohlen (venv)
+
+### Börsen & Accounts
+- **Börse**: Bitget (Standard), CCXT kompatible Börsen
+- **Konto-Typ**: Futures/Perpetual (mit Margin/Leverage)
+- **API Keys**: Read + Trade Permissions notwendig
+- **2FA**: Dringend empfohlen für Sicherheit
 
 ---
 
-## 💻 Installation
+## 💾 Installation
 
-### 1. Repository klonen
+### 1️⃣ Repository klonen
 
 ```bash
+cd ~/bots
 git clone https://github.com/Youra82/dbot.git
 cd dbot
 ```
 
-### 2. Automatische Installation
+### 2️⃣ Virtual Environment einrichten
 
 ```bash
-chmod +x install.sh
-./install.sh
+python3 -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# oder
+.venv\Scripts\activate  # Windows
 ```
 
-Das Script erstellt automatisch:
-- Python Virtual Environment (`.venv/`)
-- Installiert alle Dependencies
-- Bereitet Ordnerstruktur vor
+### 3️⃣ Dependencies installieren
 
-### 3. API-Konfiguration
+```bash
+pip install -r requirements.txt
+```
 
-Bearbeite `secret.json`:
+### 4️⃣ Geheimnisse & Einstellungen konfigurieren
 
+#### **secret.json** erstellen
 ```json
 {
   "dbot": [
     {
-      "name": "dbot_account",
+      "name": "Bitget Account",
       "exchange": "bitget",
-      "api_key": "DEIN_API_KEY",
-      "secret": "DEIN_API_SECRET",
-      "password": "DEIN_PASSPHRASE"
+      "apiKey": "YOUR_API_KEY",
+      "secret": "YOUR_SECRET_KEY",
+      "password": "YOUR_PASSPHRASE"
     }
-  ]
+  ],
+  "telegram": {
+    "bot_token": "YOUR_TELEGRAM_BOT_TOKEN",
+    "chat_id": "YOUR_CHAT_ID"
+  }
 }
 ```
 
-⚠️ **Wichtig**:
-- Aktiviere nur **Spot & Futures Trading** (KEIN Withdrawal!)
-- Nutze einen Sub-Account mit begrenztem Kapital
-- Teste ERST im Testnet!
-
-### 4. Trading-Parameter anpassen
-
-Bearbeite `settings.json`:
-
+#### **settings.json** konfigurieren
 ```json
 {
-  "trading_parameters": {
-    "leverage": 5,
-    "max_open_positions": 3,
-    "risk_per_trade_percent": 10,
-    "stop_loss_percent": 1.0,
-    "take_profit_percent": 3.0,
-    "trailing_stop_activation_rr": 1.5
+  "live_trading_settings": {
+    "use_auto_optimizer_results": false,
+    "active_strategies": [
+      {
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "1m",
+        "use_macd_filter": false,
+        "active": true
+      },
+      {
+        "symbol": "ETH/USDT:USDT",
+        "timeframe": "5m",
+        "use_macd_filter": false,
+        "active": true
+      }
+    ]
   }
 }
 ```
 
 ---
 
-## 🎮 Live-Trading
+## ⚙️ Konfiguration
 
-### Manueller Start
+### Trading-Parameter (settings.json)
 
-```bash
-# Bot starten
-python master_runner.py
+```json
+{
+  "trading_parameters": {
+    "leverage": 8,                    // 5-10x empfohlen
+    "risk_per_trade": 0.15,          // 10-20% Risk pro Trade
+    "max_positions": 6,              // Max 6 offene Positionen
+    "stop_loss_pct": 0.01,           // 1% SL für 1m/5m
+    "take_profit_pct": 0.03,         // 3% TP
+    "trailing_stop": true,           // Trailing aktivieren
+    "volume_multiplier": 1.2         // 20% über Durchschnitt = Signal
+  }
+}
 ```
 
-Der Bot startet alle in `settings.json` als `"active": true` markierten Strategien.
+### MTF-Bias Konfiguration
 
-### Pipeline starten
+DBot nutzt automatisch höhere Timeframes für Trend-Bestimmung:
+- **1m Trades** → Bias von **5m** Chart
+- **5m Trades** → Bias von **1h** oder **4h** Chart
+
+Dies verhindert Trades gegen den Haupttrend.
+
+---
+
+## 🎮 Live-Trading
+
+### Via Command Line
 
 ```bash
-# Pipeline starten
-chmod +x run_pipeline.sh
+python src/dbot/strategy/run.py --symbol BTC/USDT:USDT --timeframe 1m --use_macd false
+```
+
+### Via Master Runner (mehrere Strategien)
+
+```bash
 ./run_pipeline.sh
 ```
 
-### Automatischer Start (Cronjob)
-
-Für 24/7 Betrieb:
+### Via Docker (Produktive Umgebung)
 
 ```bash
-crontab -e
-```
-
-Füge hinzu:
-
-```
-# DBot - Alle 5 Minuten prüfen & starten falls nicht aktiv
-*/5 * * * * /usr/bin/flock -n /home/ubuntu/dbot/dbot.lock /bin/sh -c "cd /home/ubuntu/dbot && /home/ubuntu/dbot/.venv/bin/python3 /home/ubuntu/dbot/master_runner.py >> /home/ubuntu/dbot/logs/cron.log 2>&1"
+docker build -t dbot:latest .
+docker run -d \
+  -e DISCORD_WEBHOOK=... \
+  -v $(pwd)/secret.json:/app/secret.json \
+  -v $(pwd)/settings.json:/app/settings.json \
+  dbot:latest
 ```
 
 ---
@@ -211,157 +244,166 @@ Füge hinzu:
 ### Status-Check
 
 ```bash
-# Zeigt alle wichtigen Informationen
-./show_status.sh
+./show_status.sh       # Aktive Positionen & P&L
 ```
 
-Zeigt:
-- Aktive Prozesse
-- Letzte Log-Einträge
-- CPU/Memory Usage
-
-### Ergebnisse anzeigen
+### Ergebnisse & Charts
 
 ```bash
-# Aktuelle Positionen und Performance
-./show_results.sh
+./show_results.sh      # Interaktive Backtest-Analyse
 ```
 
-### Live Logs
+### Logs anschauen
 
 ```bash
-# Alle Logs
-tail -f logs/dbot_*.log
-
-# Spezifisches Symbol
-tail -f logs/dbot_BTCUSDTUSDT_5m.log
-
-# Nur Trades
-tail -f logs/dbot_*.log | grep -E "Position|Signal|PnL"
+tail -f logs/dbot_BTCUSDTUSDT_1m.log
 ```
+
+### Telegram-Alerts aktiviert?
+
+Jeder Trade/Order wird automatisch an Telegram gesendet (konfigurierbar in secret.json).
 
 ---
 
-## 🛠️ Wartung & Pflege
+## ⚠️ Wichtige Risiko-Hinweise
 
-### Bot aktualisieren
+### ‼️ KRITISCHE WARNUNGEN
 
+1. **HOCHRISIKO-STRATEGIE**
+   - Aggressive Parameter führen zu schnellen Gewinnen ABER auch schnellen Verlusten
+   - Bankroll-Management ist KRITISCH
+   - Niemals mehr als 1-2% Gesamtkapital pro Trade riskieren!
+
+2. **Leverage-Risiko**
+   - 5-10x Leverage = 5-10x Amplifikation von Gewinnen UND Verlusten
+   - Liquidation möglich bei 50% Move gegen Position
+   - Nur mit stabilen Internet- und API-Verbindungen nutzen
+
+3. **Slippage & Gebühren**
+   - Bei 1m Trades sind Slippage & Gebühren erheblich
+   - Mindestens 0.2% Gebühren pro Trade
+   - Echte Gewinne müssen Gebühren decken!
+
+4. **Ultra-Short Timeframe Risiken**
+   - **Whipsaws**: Schnelle Reversal können SL triggern
+   - **Spreads**: Größere Bid/Ask Spreads bei volatilen Assets
+   - **API-Probleme**: Zeitverzögerungen bei Börse = Slippage
+   - **Reconnection**: Internet-Ausfälle = offene Positionen ohne Management
+
+5. **NICHT für Anfänger**
+   - Dieses System erfordert:
+     - Tiefes Verständnis von Leverage & Margin
+     - Psychologische Stabilität (viele Trades = emotionale Belastung)
+     - Technisches Know-How (Server-Setup, API-Handling)
+   - Empfehlung: Erst mit Paper-Trading / kleinem Geld starten!
+
+### 💡 Best Practices
+
+✅ **DO:**
+- Mit **PAPIER-TRADING** starten
+- Niemals **ganzes Kapital** riskieren
+- **Stop-Loss** IMMER setzen
+- **Telegram-Alerts** monitoring
+- Logs regelmäßig **überprüfen**
+- **Diversifizierung** über mehrere Paare
+- **Backtesting** vor Live-Trading
+
+❌ **DON'T:**
+- Mit **Live-Geld** experimentieren
+- **Alle Positionen** auf einem Asset
+- **Hebel maximieren** (nutze 5-8x max)
+- Bot **unbeaufsichtigt** laufen lassen
+- **Secret Keys** in Code hardcoden
+- In **illiquiden** Märkten traden
+
+---
+
+## 📈 Performance Erwartungen
+
+### Realistische Szenarien
+
+#### Conservative (5x Leverage, 10% TP, 1% SL, 50% Win-Rate)
+- **Win pro Trade**: +0.5% Account
+- **Loss pro Trade**: -0.5% Account
+- **Expected Value**: 0% (zu konservativ für Scalping)
+
+#### Moderate (8x Leverage, 5% TP, 1% SL, 55% Win-Rate)
+- **Win pro Trade**: +0.4% Account
+- **Loss pro Trade**: -0.5% Account
+- **Expected Value**: +0.05% pro Trade
+- **20 Trades/Tag**: +1% täglich = **260% jährlich** (vor Gebühren!)
+
+#### Aggressive (10x Leverage, 3% TP, 0.5% SL, 60% Win-Rate)
+- **Win pro Trade**: +0.3% Account
+- **Loss pro Trade**: -0.5% Account
+- **Expected Value**: -0.02% pro Trade (NEGATIV!)
+- **Problem**: Win-Rate muss > 62.5% sein für Profit
+
+### ⚡ Warum 1m/5m Scalping schwierig ist
+
+- **Gebühren fressen Gewinne**: -0.2 bis -0.5% pro Transaktion
+- **Slippage**: Zusätzliche -0.1% bis -0.5% pro Trade
+- **Whipsaws**: Falsche Signale bei schnellen Reversals
+- **Psyche**: Viele Trades = schnelle Emotionen
+
+**Erwartung:** 5-20% monatlich NACH Gebühren (nicht 100%+!)
+
+---
+
+## 🔧 Troubleshooting
+
+### Problem: "Virtual Environment nicht gefunden"
 ```bash
-chmod +x update.sh
-./update.sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### Tests ausführen
+### Problem: "API Connection Fehler"
+- Prüfe Internet-Verbindung
+- Prüfe API Keys in secret.json
+- Prüfe IP-Whitelist auf Börse
+- Prüfe Rate Limits der API
 
-```bash
-./run_tests.sh
-```
+### Problem: "Keine Signals generiert"
+- Prüfe ob aktive_strategies in settings.json konfiguriert sind
+- Prüfe ob Konfigurationsdateien in `src/dbot/strategy/configs/` existieren
+- Schau Logs an: `tail -f logs/dbot_*.log`
 
----
-
-## 📂 Projekt-Struktur
-
-```
-dbot/
-├── src/
-│   └── dbot/
-│       ├── strategy/          # Trading-Logik
-│       │   ├── run.py
-│       │   └── scalper_engine.py
-│       └── utils/             # Hilfsfunktionen
-│           ├── exchange.py
-│           └── telegram_notifier.py
-├── scripts/
-├── tests/
-├── logs/
-├── data/
-├── artifacts/
-├── master_runner.py           # Haupt-Entry-Point
-├── settings.json              # Konfiguration
-├── secret.json                # API-Credentials
-└── requirements.txt           # Dependencies
-```
+### Problem: "Positive Trades aber negative P&L"
+- **Wahrscheinliche Ursache**: Gebühren und Slippage
+- Rechne: Gebühren = 0.05% Entry + 0.05% Exit = 0.1% pro Runde Trip
+- Mit 5% TP und 0.1% Gebühren: Echte Gewinn = 4.9% (klein!)
 
 ---
 
-## ⚠️ Wichtige Hinweise
+## 📚 Weitere Ressourcen
 
-### HOCHRISIKO-Strategie
-
-🚨 **DBot nutzt eine extrem aggressive Strategie!**
-
-- **500% Ziel in 5 Tagen** = Unrealistisch ohne enormes Risiko
-- **10% Risk pro Trade** = Sehr hoch (normal: 1-2%)
-- **5-10x Leverage** = Kann zu schnellen Verlusten führen
-- **Ultra-Short Timeframes** = Hohe Volatilität & False Signals
-
-### Was WIRKLICH passieren kann
-
-❌ **Worst Case**: Totalverlust in 24-48 Stunden  
-⚠️ **Wahrscheinlich**: -50% bis -80% Drawdown  
-✅ **Best Case**: +100-200% (aber sehr selten!)
-
-### Empfehlungen
-
-1. 🧪 **Teste ZUERST im Testnet** - Mindestens 1 Woche
-2. 💰 **Nutze nur Geld, das du verlieren kannst** - Ernsthaft!
-3. 📉 **Erwarte Verluste** - Das ist Teil des Lernprozesses
-4. 📊 **Monitor 24/7** - Sei bereit, manuell einzugreifen
-5. 🛑 **Setze harte Limits** - Max Drawdown, Daily Loss Limit
-
-### Realistischere Alternative
-
-Wenn du langfristig Geld verdienen willst:
-- **Reduziere Leverage auf 2-3x**
-- **Risk pro Trade auf 2-3%**
-- **Längere Timeframes (15m, 1h)**
-- **Ziel: 10-20% pro Monat** (nicht 500% pro Woche!)
+- **StBot Dokumentation**: Siehe `../stbot/README.md`
+- **CCXT Docs**: https://docs.ccxt.com/
+- **Bitget API**: https://bitgetlimited.github.io/apidoc/
+- **Trading Psychologie**: "Reminiscences of a Stock Operator" - Edwin Lefèvre
 
 ---
 
-## 🤝 Support & Community
+## 📄 Lizenz
 
-### Probleme melden
-
-1. Prüfe Logs: `tail -f logs/dbot_*.log`
-2. Führe Tests aus: `./run_tests.sh`
-3. Öffne ein GitHub Issue mit Details
-
-### Updates
-
-```bash
-git fetch origin
-./update.sh
-```
+MIT License - Siehe [LICENSE](LICENSE)
 
 ---
 
-## 📜 Lizenz
+## ⚠️ Disclaimer
 
-MIT License - Nutze auf eigenes Risiko!
-
----
-
-## 🙏 Disclaimer
-
-⚠️ **Dieser Bot ist ein EXPERIMENT!**
-
-- Keine Gewinngarantie
-- Hohe Verlustwahrscheinlichkeit
-- Nur für erfahrene Trader
-- Teste ausgiebig vor Live-Einsatz
-- Der Entwickler übernimmt KEINE Haftung
-
-**Trading ist riskant. Investiere nur, was du verlieren kannst.**
+**DBot ist zu Bildungszwecken bestimmt. Kein Finanzberatung. Trading mit Leverage ist HOCHRISIKO. Autor übernimmt keine Haftung für Verluste.**
 
 ---
 
-<div align="center">
+## 📞 Support
 
-**Made with ⚡ by the DBot Team**
+- **Issues**: GitHub Issues
+- **Dokumentation**: README.md & inline Code-Kommentare
+- **Community**: Telegram Bot Alerts
 
-⭐ Star uns auf GitHub wenn dir das Projekt gefällt (trotz der Risiken!)
+---
 
-[🔝 Nach oben](#-dbot---high-frequency-momentum-scalper)
-
-</div>
+**Viel Erfolg beim Scalping! 🚀📈**

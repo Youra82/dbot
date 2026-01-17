@@ -1,6 +1,6 @@
 {
     "market": {
-        "symbol": "BTC/USDT:USDT",
+        "symbol": "DOGE/USDT:USDT",
         "timeframe": "5m",
         "htf": "1h"
     },

@@ -1,6 +1,6 @@
 {
     "market": {
-        "symbol": "BTC/USDT:USDT",
+        "symbol": "ETH/USDT:USDT",
         "timeframe": "1m",
         "htf": "5m"
     },

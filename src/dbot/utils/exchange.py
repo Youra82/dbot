@@ -1,371 +1,312 @@
-# src/dbot/utils/exchange.py
-"""
-Exchange Wrapper für CCXT - speziell für DBot
-"""
+# /root/stbot/src/stbot/utils/exchange.py
+# VERSION V28 - ADAPTED FROM TITANBOT: Robust Execution + Brute Force Cleanup
 import ccxt
+import pandas as pd
+from datetime import datetime, timezone, timedelta
 import time
 import logging
-from typing import Optional, Dict, List, Any
+import os
 
 logger = logging.getLogger(__name__)
 
+# --- Pfad für Fallback-Cache ---
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+
+def load_data_from_cache_or_fetch(symbol, timeframe, start_date_str, end_date_str, exchange_instance=None):
+    # Fallback-Funktion für Notfälle (wenn API down ist)
+    data_dir = os.path.join(PROJECT_ROOT, 'data')
+    cache_dir = os.path.join(data_dir, 'cache')
+    symbol_filename = symbol.replace('/', '-').replace(':', '-')
+    cache_file = os.path.join(cache_dir, f"{symbol_filename}_{timeframe}.csv")
+
+    if os.path.exists(cache_file):
+        try:
+            data = pd.read_csv(cache_file, index_col='timestamp', parse_dates=True)
+            data.index = pd.to_datetime(data.index, utc=True)
+            return data.loc[data.index.min():data.index.max()]
+        except Exception as e:
+            logger.warning(f"Fehler beim Laden des Caches: {e}")
+            pass
+    return pd.DataFrame()
+
 
 class Exchange:
-    """
-    Exchange Wrapper für Bitget Futures Trading
-    Optimiert für High-Frequency Scalping
-    """
-    
-    SUPPORTED_TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d']
-    
-    def __init__(self, exchange_id: str = 'bitget', api_key: str = '', 
-                 api_secret: str = '', password: str = ''):
-        """Initialisiere Exchange Connection"""
-        self.exchange_id = exchange_id
-        
+    def __init__(self, account_config):
+        self.account = account_config
+        self.exchange = getattr(ccxt, 'bitget')({
+            'apiKey': self.account.get('apiKey'),
+            'secret': self.account.get('secret'),
+            'password': self.account.get('password'),
+            'options': {
+                'defaultType': 'swap',
+            },
+            'enableRateLimit': True,
+        })
         try:
-            self.exchange = getattr(ccxt, exchange_id)({
-                'apiKey': api_key,
-                'secret': api_secret,
-                'password': password,
-                'options': {
-                    'defaultType': 'swap',
-                },
-                'enableRateLimit': True,
-                'rateLimit': 100,  # 100ms between requests
-            })
-            
-            # Load markets
-            self.markets = self._with_retry(self.exchange.load_markets, max_retries=3)
-            logger.info(f"✅ {exchange_id.upper()} Exchange erfolgreich initialisiert")
-            
+            self.markets = self.exchange.load_markets()
+            logger.info("Bitget Märkte erfolgreich geladen.")
         except Exception as e:
-            logger.error(f"❌ Exchange Initialisierung fehlgeschlagen: {e}")
-            raise
-    
-    def _with_retry(self, func, *args, max_retries: int = 5, base_sleep: float = 0.5, **kwargs):
-        """Retry logic mit exponential backoff"""
-        attempt = 0
-        while attempt < max_retries:
-            try:
-                return func(*args, **kwargs)
-            except (ccxt.DDoSProtection, ccxt.RateLimitExceeded) as e:
-                attempt += 1
-                if attempt >= max_retries:
-                    raise
-                sleep_time = base_sleep * (2 ** (attempt - 1))
-                logger.warning(f"⚠️  Rate limit hit (attempt {attempt}/{max_retries}). Retry in {sleep_time:.1f}s")
-                time.sleep(sleep_time)
-            except Exception as e:
-                logger.error(f"❌ Fehler in API Call: {e}")
-                raise
-    
-    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> List:
-        """Hole OHLCV Daten"""
+            logger.critical(f"FATAL: Fehler beim Laden der Märkte: {e}")
+            self.markets = None
+
+    # --- 1. DATA FETCHING (Live Data Priority) ---
+
+    def fetch_recent_ohlcv(self, symbol, timeframe, limit=300):
+        if not self.markets: return pd.DataFrame()
+
+        # IMMER zuerst Live-API versuchen!
         try:
-            if timeframe not in self.SUPPORTED_TIMEFRAMES:
-                raise ValueError(f"Timeframe {timeframe} nicht unterstützt")
-            
             effective_limit = min(limit, 1000)
-            data = self._with_retry(
-                self.exchange.fetch_ohlcv,
-                symbol,
-                timeframe,
-                limit=effective_limit
-            )
-            return data if data else []
-            
+            data = self.exchange.fetch_ohlcv(symbol, timeframe, limit=effective_limit)
+
+            if data:
+                df = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+                df.set_index('timestamp', inplace=True)
+                df.sort_index(inplace=True)
+                return df
+
         except Exception as e:
-            logger.error(f"❌ fetch_ohlcv Error: {e}")
-            return []
+            logger.error(f"FEHLER bei Live-API-Abruf für {symbol}: {e}. Versuche Fallback.")
 
-    def fetch_historical_ohlcv(self, symbol: str, timeframe: str, start_date: str, end_date: str):
-        """
-        Hole historische OHLCV Daten zwischen start_date und end_date.
-        Gibt ein pandas DataFrame mit Spalten: timestamp, open, high, low, close, volume
-        """
-        import pandas as pd
-        from datetime import datetime
+        # Fallback auf Cache
+        data = load_data_from_cache_or_fetch(symbol, timeframe, '2021-01-01', datetime.now().strftime('%Y-%m-%d'))
+        if not data.empty:
+            logger.warning(f"WARNUNG: Verwende veraltete Cache-Daten für {symbol}!")
+            return data.tail(limit)
 
-        if timeframe not in self.SUPPORTED_TIMEFRAMES:
-            raise ValueError(f"Timeframe {timeframe} nicht unterstützt")
+        return pd.DataFrame()
 
-        # Parse dates
-        start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
-        end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
-
-        # Timeframe in Millisekunden
-        tf_ms = {
-            '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000,
-            '1h': 3600000, '2h': 7200000, '4h': 14400000, '6h': 21600000,
-            '12h': 43200000, '1d': 86400000
-        }
-        step = tf_ms.get(timeframe, 3600000) * 1000  # 1000 candles per request
-
-        all_data = []
-        current_ts = start_ts
-
-        while current_ts < end_ts:
-            try:
-                data = self._with_retry(
-                    self.exchange.fetch_ohlcv,
-                    symbol,
-                    timeframe,
-                    since=current_ts,
-                    limit=1000
-                )
-                if not data:
-                    break
-                all_data.extend(data)
-                current_ts = data[-1][0] + tf_ms.get(timeframe, 3600000)
-                if current_ts >= end_ts:
-                    break
-            except Exception as e:
-                logger.error(f"❌ fetch_historical_ohlcv Error: {e}")
-                break
-
-        if not all_data:
+    def fetch_historical_ohlcv(self, symbol, timeframe, start_date_str, end_date_str, max_retries=3):
+        if not self.markets: 
+            return pd.DataFrame()
+            
+        try:
+            start_dt = pd.to_datetime(start_date_str + 'T00:00:00Z', utc=True)
+            end_dt = pd.to_datetime(end_date_str + 'T23:59:59Z', utc=True)
+            start_ts = int(start_dt.timestamp() * 1000)
+            end_ts = int(end_dt.timestamp() * 1000)
+        except ValueError as e:
+            logger.error(f"FEHLER: Ungültiges Datumsformat: {e}")
             return pd.DataFrame()
 
-        df = pd.DataFrame(all_data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        all_ohlcv = []
+        current_ts = start_ts
+        retries = 0
+        limit = 1000
+        
+        # Nutze ccxt's parse_timeframe für korrekte Timeframe-Duration
+        timeframe_duration_ms = self.exchange.parse_timeframe(timeframe) * 1000 if self.exchange.parse_timeframe(timeframe) else 60000
+
+        while current_ts < end_ts and retries < max_retries:
+            try:
+                ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, since=current_ts, limit=limit)
+                if not ohlcv:
+                    logger.warning(f"Keine OHLCV-Daten für {symbol} {timeframe} ab {pd.to_datetime(current_ts, unit='ms', utc=True)} erhalten.")
+                    current_ts += limit * timeframe_duration_ms
+                    continue
+
+                # Filtere Kerzen die nach end_ts liegen
+                ohlcv = [candle for candle in ohlcv if candle[0] <= end_ts]
+                if not ohlcv: 
+                    break
+
+                all_ohlcv.extend(ohlcv)
+                last_ts = ohlcv[-1][0]
+
+                # Springe zur nächsten Kerze
+                if last_ts >= current_ts:
+                    current_ts = last_ts + timeframe_duration_ms
+                else:
+                    logger.warning("WARNUNG: Kein Zeitfortschritt beim Datenabruf, breche ab.")
+                    break
+                    
+                retries = 0
+                
+            except (ccxt.RateLimitExceeded, ccxt.NetworkError) as e:
+                logger.warning(f"Netzwerk/Ratelimit-Fehler: {e}. Versuch {retries+1}/{max_retries}. Warte...")
+                time.sleep(5 * (retries + 1))
+                retries += 1
+            except ccxt.BadSymbol as e:
+                logger.error(f"FEHLER: Ungültiges Symbol: {symbol}. {e}")
+                return pd.DataFrame()
+            except Exception as e:
+                logger.error(f"Unerwarteter Fehler: {e}. Versuch {retries+1}/{max_retries}.")
+                time.sleep(5)
+                retries += 1
+
+        if not all_ohlcv:
+            logger.warning(f"Keine historischen Daten für {symbol} ({timeframe}) im Zeitraum {start_date_str} - {end_date_str} gefunden.")
+            return pd.DataFrame()
+
+        df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
         df.set_index('timestamp', inplace=True)
-        df = df[~df.index.duplicated(keep='first')]
-        df = df.loc[start_date:end_date]
-        return df
-    
-    def fetch_ticker(self, symbol: str) -> Optional[Dict]:
-        """Hole aktuellen Ticker"""
+        df = df[~df.index.duplicated(keep='first')].sort_index()
+        return df.loc[start_dt:end_dt]
+            return pd.DataFrame()
+
+    def fetch_ticker(self, symbol):
+        if not self.markets: return None
         try:
-            return self._with_retry(self.exchange.fetch_ticker, symbol)
+            return self.exchange.fetch_ticker(symbol)
         except Exception as e:
-            logger.error(f"❌ fetch_ticker Error: {e}")
+            logger.error(f"Fehler bei Ticker: {e}")
             return None
-    
-    def get_balance(self, currency: str = 'USDT') -> float:
-        """Hole verfügbares Guthaben"""
+
+    # --- 2. EXECUTION LOGIC (Robust & Forcing Params) ---
+
+    def set_margin_mode(self, symbol, mode='isolated'):
+        if not self.markets: return False
         try:
-            balance = self._with_retry(self.exchange.fetch_balance)
-            
-            if currency in balance:
-                if 'free' in balance[currency]:
-                    return float(balance[currency]['free'])
-                elif 'available' in balance[currency]:
-                    return float(balance[currency]['available'])
-                elif 'total' in balance[currency]:
-                    return float(balance[currency]['total'])
-            
-            return 0.0
-            
-        except Exception as e:
-            logger.error(f"❌ get_balance Error: {e}")
-            return 0.0
-    
-    def set_leverage(self, symbol: str, leverage: int) -> bool:
-        """Setze Leverage für Symbol"""
-        try:
-            self._with_retry(self.exchange.set_leverage, leverage, symbol)
-            logger.info(f"✅ Leverage für {symbol} auf {leverage}x gesetzt")
+            self.exchange.set_margin_mode(mode, symbol)
             return True
         except Exception as e:
-            if 'not changed' in str(e).lower():
-                return True
-            logger.warning(f"⚠️  set_leverage Warning: {e}")
-            return False
-    
-    def set_margin_mode(self, symbol: str, mode: str = 'isolated') -> bool:
-        """Setze Margin Mode"""
+            # Wir ignorieren den Fehler "Margin mode is the same" und machen trotzdem weiter
+            if 'Margin mode is the same' in str(e): return True
+            logger.warning(f"Info: Margin-Modus ({mode}) konnte nicht explizit gesetzt werden: {e}")
+            return True # WICHTIG: Return True, damit der Bot nicht abbricht!
+
+    def set_leverage(self, symbol, level=10):
+        if not self.markets: return False
         try:
-            self._with_retry(self.exchange.set_margin_mode, mode, symbol)
-            logger.info(f"✅ Margin Mode für {symbol} auf {mode} gesetzt")
+            self.exchange.set_leverage(level, symbol)
             return True
         except Exception as e:
-            if 'same' in str(e).lower():
-                return True
-            logger.warning(f"⚠️  set_margin_mode Warning: {e}")
-            return False
-    
-    def create_market_order(self, symbol: str, side: str, amount: float, 
-                           reduce_only: bool = False) -> Optional[Dict]:
-        """
-        Erstelle Market Order
-        
-        Args:
-            symbol: Trading Pair
-            side: 'buy' oder 'sell'
-            amount: Order Größe
-            reduce_only: Nur zum Schließen von Positionen
-        """
+            # Wir ignorieren den Fehler "Leverage not changed" und machen trotzdem weiter
+            if 'Leverage not changed' in str(e): return True
+            logger.warning(f"Info: Hebel ({level}x) konnte nicht explizit gesetzt werden: {e}")
+            return True # WICHTIG: Return True, damit der Bot nicht abbricht!
+
+    def create_market_order(self, symbol, side, amount, params={}):
+        # WICHTIG: Params werden hier durchgereicht (z.B. marginMode, leverage)
+        if not self.markets: return None
         try:
-            # Round amount to precision
             rounded_amount = float(self.exchange.amount_to_precision(symbol, amount))
-            
-            params = {}
-            if reduce_only:
-                params['reduceOnly'] = True
-            
-            order = self._with_retry(
-                self.exchange.create_order,
-                symbol,
-                'market',
-                side,
-                rounded_amount,
-                params=params
-            )
-            
-            logger.info(f"✅ Market Order: {side.upper()} {rounded_amount} {symbol}")
-            return order
-            
+            if rounded_amount <= 0: return None
+
+            clean_params = params.copy()
+            # Entferne Parameter, die Bitget via CCXT stören könnten, falls nötig
+            if 'instId' in clean_params: del clean_params['instId']
+            if 'symbol' in clean_params: del clean_params['symbol']
+
+            return self.exchange.create_order(symbol, 'market', side, rounded_amount, params=clean_params)
+        except ccxt.InsufficientFunds as e:
+            logger.error("Zu wenig Guthaben für Order.")
+            raise e
         except Exception as e:
-            logger.error(f"❌ create_market_order Error: {e}")
+            logger.error(f"Fehler bei Market Order ({symbol}): {e}")
             return None
-    
-    def get_open_positions(self, symbol: Optional[str] = None) -> List[Dict]:
-        """Hole offene Positionen"""
-        try:
-            if symbol:
-                positions = self._with_retry(self.exchange.fetch_positions, [symbol])
-            else:
-                positions = self._with_retry(self.exchange.fetch_positions)
-            
-            # Filter nur offene Positionen
-            open_positions = [
-                p for p in positions 
-                if p.get('contracts', 0.0) > 0.0 or abs(p.get('contractSize', 0.0)) > 0.0
-            ]
-            
-            return open_positions
-            
-        except Exception as e:
-            logger.error(f"❌ get_open_positions Error: {e}")
-            return []
-    
-    def cancel_all_orders(self, symbol: str) -> bool:
-        """Storniere alle offenen Orders"""
-        try:
-            self._with_retry(self.exchange.cancel_all_orders, symbol)
-            logger.info(f"✅ Alle Orders für {symbol} storniert")
-            return True
-        except Exception as e:
-            logger.warning(f"⚠️  cancel_all_orders Warning: {e}")
-            return False
-    
-    def place_stop_loss_order(self, symbol: str, side: str, amount: float, 
-                             trigger_price: float, reduce_only: bool = True) -> Optional[Dict]:
-        """
-        Erstelle Stop Loss Order auf Bitget
-        
-        Args:
-            symbol: Trading Pair
-            side: 'buy' oder 'sell'
-            amount: Order Größe
-            trigger_price: Trigger Price (SL Level)
-            reduce_only: Nur zum Schließen von Positionen
-        """
+
+    def place_trigger_market_order(self, symbol, side, amount, trigger_price, params={}):
+        if not self.markets: return None
         try:
             rounded_price = float(self.exchange.price_to_precision(symbol, trigger_price))
             rounded_amount = float(self.exchange.amount_to_precision(symbol, amount))
-            
-            params = {
+
+            order_params = {
                 'triggerPrice': rounded_price,
-                'stopPrice': rounded_price,
+                'reduceOnly': params.get('reduceOnly', False)
             }
-            
-            if reduce_only:
-                params['reduceOnly'] = True
-            
-            order = self._with_retry(
-                self.exchange.create_order,
-                symbol,
-                'market',
-                side,
-                rounded_amount,
-                None,
-                params=params
-            )
-            
-            logger.info(f"✅ Stop Loss Order erstellt: {side.upper()} {rounded_amount} @ {rounded_price}")
-            return order
-            
+            order_params.update(params)
+
+            if 'instId' in order_params: del order_params['instId']
+            if 'symbol' in order_params: del order_params['symbol']
+
+            logger.info(f"Sende Trigger Order: Side={side}, Price={rounded_price}")
+            return self.exchange.create_order(symbol, 'market', side, rounded_amount, params=order_params)
         except Exception as e:
-            logger.error(f"❌ place_stop_loss_order Error: {e}")
+            logger.error(f"Fehler bei Trigger Order: {e}")
             return None
-    
-    def place_trailing_stop_order(self, symbol: str, side: str, amount: float,
-                                 activation_price: float, callback_rate_decimal: float) -> Optional[Dict]:
-        """
-        Platziere Trailing Stop Market Order auf Bitget (identisch mit JaegerBot)
-        Nutzt Bitget-spezifische Parameter: trailingTriggerPrice und trailingPercent
-        
-        Args:
-            symbol: Trading Pair (z.B. "BTC/USDT:USDT")
-            side: 'buy' oder 'sell'
-            amount: Position Größe
-            activation_price: Trigger/Activation Price (ab wann Trailing aktiv)
-            callback_rate_decimal: Callback Rate als Dezimal (z.B. 0.005 für 0.5%)
-        """
+
+    def place_trailing_stop_order(self, symbol, side, amount, activation_price, callback_rate_decimal, params={}):
+        if not self.markets: return None
         try:
             rounded_activation = float(self.exchange.price_to_precision(symbol, activation_price))
             rounded_amount = float(self.exchange.amount_to_precision(symbol, amount))
-            
-            if rounded_amount <= 0:
-                logger.error(f"❌ Berechneter TSL-Betrag ist Null ({rounded_amount})")
-                return None
-            
-            # In Prozent umwandeln (z.B. 0.005 * 100 = 0.5%)
-            callback_rate_percent = callback_rate_decimal * 100
-            
-            # Bitget-spezifische Parameter wie JaegerBot
+            callback_rate_float = callback_rate_decimal * 100
+
             order_params = {
+                **params,
                 'trailingTriggerPrice': rounded_activation,
-                'trailingPercent': callback_rate_percent,
+                'trailingPercent': callback_rate_float,
                 'productType': 'USDT-FUTURES'
             }
-            
-            logger.info(f"📊 TSL Order (MARKET): Side={side}, Amount={rounded_amount}, Activation={rounded_activation}, Callback={callback_rate_percent}%")
-            
-            # Erstelle Order mit Market-Typ und Bitget TSL Parametern
-            order = self._with_retry(
-                self.exchange.create_order,
-                symbol,
-                'market',
-                side,
-                rounded_amount,
-                None,
-                params=order_params
-            )
-            
-            logger.info(f"✅ Trailing Stop Order platziert: {side.upper()} {rounded_amount}")
-            return order
-            
+            return self.exchange.create_order(symbol, 'market', side, rounded_amount, params=order_params)
         except Exception as e:
-            logger.error(f"❌ place_trailing_stop_order Error: {e}", exc_info=True)
+            logger.error(f"Fehler bei Trailing Stop: {e}")
             return None
-    
-    def fetch_open_trigger_orders(self, symbol: str) -> List[Dict]:
-        """Hole alle offenen Trigger/Stop Orders"""
+
+    # --- 3. MANAGEMENT & CLEANUP (Brute Force Logic) ---
+
+    def fetch_open_positions(self, symbol):
+        if not self.markets: return []
         try:
-            orders = self._with_retry(
-                self.exchange.fetch_orders,
-                symbol,
-                params={'stop': True}
-            )
-            return orders if orders else []
+            params = {'productType': 'USDT-FUTURES'}
+            positions = self.exchange.fetch_positions([symbol], params=params)
+            return [p for p in positions if float(p.get('contracts', 0)) > 0]
         except Exception as e:
-            logger.error(f"❌ fetch_open_trigger_orders Error: {e}")
+            logger.error(f"Fehler bei fetch_open_positions: {e}")
             return []
-    
-    def cancel_trigger_order(self, order_id: str, symbol: str) -> bool:
-        """Storniere eine Trigger Order"""
+
+    def fetch_open_trigger_orders(self, symbol):
+        if not self.markets: return []
         try:
-            self._with_retry(
-                self.exchange.cancel_order,
-                order_id,
-                symbol,
-                params={'stop': True}
-            )
-            logger.info(f"✅ Trigger Order {order_id} storniert")
-            return True
+            params = {'productType': 'USDT-FUTURES', 'stop': True}
+            return self.exchange.fetch_open_orders(symbol, params=params)
         except Exception as e:
-            logger.warning(f"⚠️  cancel_trigger_order Warning: {e}")
-            return False
+            logger.error(f"Fehler bei Trigger Orders: {e}")
+            return []
+
+    def fetch_balance_usdt(self):
+        if not self.markets: return 0
+        try:
+            params = {'productType': 'USDT-FUTURES'}
+            balance = self.exchange.fetch_balance(params=params)
+            if 'USDT' in balance and 'free' in balance['USDT']:
+                return float(balance['USDT']['free'])
+            if 'info' in balance and 'data' in balance['info']:
+                   for asset in balance['info']['data']:
+                        if asset.get('marginCoin') == 'USDT':
+                             return float(asset.get('available', 0))
+            return 0
+        except Exception as e:
+            logger.error(f"Fehler bei Balance: {e}")
+            return 0
+
+    def cancel_all_orders_for_symbol(self, symbol):
+        """Brute Force Löschung: Erst Massen-Löschen, dann gezieltes Einzel-Löschen"""
+        if not self.markets: return 0
+        count = 0
+
+        # 1. Versuch: Massen-Löschung (Schnell)
+        try:
+            self.exchange.cancel_all_orders(symbol, params={'productType': 'USDT-FUTURES', 'stop': False}) # Normale
+            count += 1
+        except Exception: pass
+
+        try:
+            self.exchange.cancel_all_orders(symbol, params={'productType': 'USDT-FUTURES', 'stop': True}) # Trigger/Stop
+            count += 1
+        except Exception: pass
+
+        time.sleep(0.5) # Kurz warten
+
+        # 2. Versuch: Gezielte Einzel-Löschung (Der "Zombie-Killer")
+        try:
+            # Hole ALLE offenen Orders (auch Trigger)
+            open_triggers = self.fetch_open_trigger_orders(symbol)
+            for order in open_triggers:
+                try:
+                    self.exchange.cancel_order(order['id'], symbol, params={'productType': 'USDT-FUTURES', 'stop': True})
+                    count += 1
+                    time.sleep(0.1) # Rate Limit beachten
+                except Exception as e:
+                    logger.warning(f"Konnte Einzel-Order {order['id']} nicht löschen: {e}")
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen/Löschen der Rest-Orders: {e}")
+
+        return count
+
+    def cleanup_all_open_orders(self, symbol):
+        return self.cancel_all_orders_for_symbol(symbol)
