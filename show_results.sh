@@ -10,6 +10,13 @@ RESULTS_SCRIPT="src/dbot/analysis/show_results.py"
 OPTIMAL_CONFIGS_FILE=".optimal_configs.tmp"
 UPDATE_SCRIPT="update_settings_from_optimizer.py"
 
+# Aktiviere venv und prüfe auf Fehler
+if [ ! -f "$VENV_PATH" ]; then
+	echo -e "${RED}❌ Virtual Environment nicht gefunden unter: $VENV_PATH${NC}"
+	echo "Bitte zuerst 'python3 -m venv .venv' ausführen."
+	exit 1
+fi
+
 source "$VENV_PATH"
 
 echo -e "${BLUE}======================================================="
