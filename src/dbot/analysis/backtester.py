@@ -80,13 +80,23 @@ def simulate_smc_backtest(df, params):
     max_dd = 0.0
     fee_pct = params.get('fee_pct', 0.0005)
 
-    leverage = params.get('leverage', 8)
-    risk_per_trade = params.get('risk_per_trade', 0.12)
+    base_leverage = params.get('leverage', 8)
+    base_risk_per_trade = params.get('risk_per_trade', 0.12)
     atr_mult = params.get('atr_multiplier_sl', 1.0)
     min_sl_pct = params.get('min_sl_pct', 0.003)
     rr = params.get('risk_reward_ratio', 2.5)
     act_rr = params.get('trailing_stop_activation_rr', 1.5)
     callback_pct = params.get('trailing_stop_callback_rate_pct', 0.5) / 100.0
+
+    # Dynamische Risiko-Settings (analog trade_manager)
+    dynamic_enabled = params.get('dynamic_risk_enabled', True)
+    high_vol_threshold = params.get('high_vol_threshold', 1.5)
+    high_vol_leverage_scale = params.get('high_vol_leverage_scale', 0.6)
+    high_vol_risk_scale = params.get('high_vol_risk_scale', 0.7)
+    low_vol_threshold = params.get('low_vol_threshold', 0.8)
+    low_vol_leverage_scale = params.get('low_vol_leverage_scale', 1.0)
+    low_vol_risk_scale = params.get('low_vol_risk_scale', 1.0)
+    min_risk_per_trade_pct = params.get('min_risk_per_trade_pct', 0.05)  # 5% Untergrenze falls skaliert
 
     engine = SREngine(settings=params.get('strategy', {}))
 
@@ -135,7 +145,7 @@ def simulate_smc_backtest(df, params):
                 pnl_usd = notional * pnl_pct
                 total_fees = notional * fee_pct * 2
                 net_pnl = pnl_usd - total_fees
-                equity += net_pnl
+                equity = max(0, equity + net_pnl)
                 trades.append({
                     'side': position['side'],
                     'entry_time': position['entry_time'],
@@ -149,6 +159,9 @@ def simulate_smc_backtest(df, params):
                 if peak_equity > 0:
                     dd = (peak_equity - equity) / peak_equity
                     max_dd = max(max_dd, dd)
+                if equity <= 0:
+                    liquidated = True
+                    break
 
         # Entry-Signal prüfen wenn frei
         if position is None:
@@ -158,6 +171,20 @@ def simulate_smc_backtest(df, params):
                 current_atr = current_candle.get('atr') or current.get('atr')
                 if pd.isna(current_atr) or current_atr <= 0:
                     continue
+
+                # Dynamische Anpassung
+                leverage = base_leverage
+                risk_per_trade = base_risk_per_trade
+                atr_avg = processed['atr'].tail(50).mean()
+                if dynamic_enabled and atr_avg and atr_avg > 0:
+                    vol_ratio = current_atr / atr_avg
+                    if vol_ratio >= high_vol_threshold:
+                        leverage = max(1, base_leverage * high_vol_leverage_scale)
+                        risk_per_trade = max(min_risk_per_trade_pct, base_risk_per_trade * high_vol_risk_scale)
+                    elif vol_ratio <= low_vol_threshold:
+                        leverage = max(1, base_leverage * low_vol_leverage_scale)
+                        risk_per_trade = base_risk_per_trade * low_vol_risk_scale
+
                 sl_distance_atr = current_atr * atr_mult
                 sl_distance_min = entry_price * min_sl_pct
                 sl_distance = max(sl_distance_atr, sl_distance_min)
@@ -166,8 +193,11 @@ def simulate_smc_backtest(df, params):
                 risk_usd = equity * risk_per_trade
                 sl_pct = sl_distance / entry_price
                 notional = risk_usd / sl_pct
+                margin = notional / leverage
+                if margin > equity or notional <= 0:
+                    continue
                 amount = notional / entry_price
-                if amount <= 0 or notional <= 0:
+                if amount <= 0:
                     continue
                 if signal_side == 'buy':
                     sl_price = entry_price - sl_distance
@@ -187,7 +217,7 @@ def simulate_smc_backtest(df, params):
                     'activation_price': activation_price,
                     'trailing_active': False,
                     'peak_price': entry_price,
-                    'notional': notional * leverage
+                    'notional': notional
                 }
 
         equity_curve.append({
@@ -208,7 +238,8 @@ def simulate_smc_backtest(df, params):
         'trades_count': trades_count,
         'win_rate': win_rate,
         'max_drawdown_pct': max_dd * 100,
-        'equity_curve': equity_curve
+        'equity_curve': equity_curve,
+        'liquidated': liquidated
     }
 
 
@@ -259,7 +290,10 @@ def main():
 
     print("====================================================")
     print(f"Backtest: {args.symbol} ({args.timeframe}) {args.start_date} -> {args.end_date}")
-    print(f"Start: {result['start_equity']:.2f} | Ende: {result['final_equity']:.2f} | PnL: {result['pnl_pct']:.2f}%")
+    if result.get('liquidated'):
+        print(f"Start: {result['start_equity']:.2f} | Ende: 0.00 | LIQUIDIERT")
+    else:
+        print(f"Start: {result['start_equity']:.2f} | Ende: {result['final_equity']:.2f} | PnL: {result['pnl_pct']:.2f}%")
     print(f"Trades: {result['trades_count']} | Win-Rate: {result['win_rate']:.2f}% | Max DD: {result['max_drawdown_pct']:.2f}%")
 
     if args.export:
