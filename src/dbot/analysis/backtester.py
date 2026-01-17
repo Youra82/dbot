@@ -1,140 +1,148 @@
-import argparse
-import json
-import math
 import os
-import sys
-from datetime import datetime
-
 import pandas as pd
+import numpy as np
+from datetime import timedelta
+import json
+import sys
 import ta
+import math
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from dbot.utils.exchange import Exchange
-from dbot.strategy.sr_engine import SREngine
-from dbot.strategy.trade_logic import get_titan_signal
-from dbot.strategy.aggressive_scalper import get_scalp_signal
+from dbot.utils.ann_model import prepare_data_for_ann, load_model_and_scaler, create_ann_features
+from dbot.utils.supertrend_indicator import SuperTrendLocal
 
 
-class Bias:
-    BULLISH = "BULLISH"
-    BEARISH = "BEARISH"
-    NEUTRAL = "NEUTRAL"
-
-
-def load_account_config():
-    secret_path = os.path.join(PROJECT_ROOT, 'secret.json')
-    if not os.path.exists(secret_path):
-        raise FileNotFoundError("secret.json nicht gefunden – API Keys erforderlich für Daten-Download.")
-    with open(secret_path, 'r') as f:
-        secrets = json.load(f)
-    api_setup = secrets.get('dbot', [None])[0]
-    if not api_setup:
-        raise ValueError("Kein dbot Account in secret.json gefunden.")
-    return {
-        'apiKey': api_setup.get('apiKey') or api_setup.get('api_key', ''),
-        'secret': api_setup.get('secret', ''),
-        'password': api_setup.get('password', '')
-    }
-
-
-def fetch_ohlcv(symbol, timeframe, start_date, end_date):
+def load_data(symbol, timeframe, start_date_str, end_date_str):
+    cache_dir = os.path.join(PROJECT_ROOT, 'data', 'cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    symbol_filename = symbol.replace('/', '-').replace(':', '-')
+    cache_file = os.path.join(cache_dir, f"{symbol_filename}_{timeframe}.csv")
+    if os.path.exists(cache_file):
+        data = pd.read_csv(cache_file, index_col='timestamp', parse_dates=True)
+        try:
+            if data.index.min() <= pd.to_datetime(start_date_str, utc=True) and data.index.max() >= pd.to_datetime(end_date_str, utc=True):
+                return data.loc[start_date_str:end_date_str]
+        except Exception:
+            pass
+    print(f"Starte Download für {symbol} ({timeframe}) von der Börse...")
     try:
-        account_config = load_account_config()
-        exchange = Exchange(account_config)
-        print(f"[FETCH] {symbol} {timeframe} {start_date} -> {end_date} ...", flush=True)
-        df = exchange.fetch_historical_ohlcv(symbol, timeframe, start_date, end_date)
-        if df is None or df.empty:
-            print(f"FEHLER: Keine Daten für {symbol} {timeframe} im Zeitraum {start_date} - {end_date}")
+        with open(os.path.join(PROJECT_ROOT, 'secret.json'), "r") as f:
+            secrets = json.load(f)
+        api_setup = secrets.get('dbot', [None])[0]
+        if not api_setup:
+            print("Fehler: Kein dbot Account in secret.json gefunden.")
             return pd.DataFrame()
-        print(f"[FETCH] Fertig: {len(df)} Kerzen", flush=True)
-        return df
+        exchange = Exchange(
+            api_setup.get('exchange', 'bitget'),
+            api_setup.get('api_key', ''),
+            api_setup.get('secret', ''),
+            api_setup.get('password', '')
+        )
+        full_data = exchange.fetch_historical_ohlcv(symbol, timeframe, start_date_str, end_date_str)
+        if not full_data.empty:
+            full_data.to_csv(cache_file)
+            return full_data
     except Exception as e:
-        print(f"FEHLER beim Datenabruf: {e}")
-        return pd.DataFrame()
+        print(f"Fehler beim Daten-Download: {e}")
+    return pd.DataFrame()
 
 
-def simulate_smc_backtest(df, params):
-    if df is None or df.empty:
-        return {"error": "Keine Daten vorhanden"}
-    
-    if len(df) < 100:
-        return {"error": f"Zu wenige Daten für Backtest (nur {len(df)} Kerzen, min. 100 erforderlich)"}
+def get_higher_timeframe(tf):
+    if 'm' in tf:
+        return '1h'
+    if tf == '1h':
+        return '4h'
+    if tf in ['2h', '4h', '6h']:
+        return '1d'
+    if tf == '1d':
+        return None
+    return '1d'
 
-    df = df.copy()
-    
-    # Timestamp handling - prüfe ob bereits Index oder Spalte
-    if 'timestamp' in df.columns:
-        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-        df.set_index('timestamp', inplace=True)
-    elif not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index, utc=True)
 
-    # ATR einmal berechnen
-    atr_indicator = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14)
-    df['atr'] = atr_indicator.average_true_range()
+def calculate_supertrend_direction(data):
+    st_indicator = SuperTrendLocal(data['high'], data['low'], data['close'], window=10, multiplier=3.0)
+    return st_indicator.get_supertrend_direction().shift(1)
 
-    start_capital = params.get('start_capital', 1000.0)
-    equity = start_capital
-    peak_equity = start_capital
-    max_dd = 0.0
-    fee_pct = params.get('fee_pct', 0.0005)
 
-    base_leverage = params.get('leverage', 6)
-    base_risk_per_trade = params.get('risk_per_trade', 0.05)
-    atr_mult = params.get('atr_multiplier_sl', 1.0)
-    min_sl_pct = params.get('min_sl_pct', 0.003)
-    rr = params.get('risk_reward_ratio', 2.5)
-    act_rr = params.get('trailing_stop_activation_rr', 1.5)
-    callback_pct = params.get('trailing_stop_callback_rate_pct', 0.5) / 100.0
+def run_ann_backtest(data, params, model_paths, start_capital=1000, use_macd_filter=False, htf_data=None, timeframe=None, verbose=False, params_for_htf_load=None):
+    model, scaler = load_model_and_scaler(model_paths['model'], model_paths['scaler'])
+    if not model or not scaler:
+        raise Exception("Modell/Scaler nicht gefunden!")
 
-    # Dynamische Risiko-Settings (analog trade_manager)
-    dynamic_enabled = params.get('dynamic_risk_enabled', True)
-    high_vol_threshold = params.get('high_vol_threshold', 1.4)
-    high_vol_leverage_scale = params.get('high_vol_leverage_scale', 0.5)
-    high_vol_risk_scale = params.get('high_vol_risk_scale', 0.6)
-    low_vol_threshold = params.get('low_vol_threshold', 0.9)
-    low_vol_leverage_scale = params.get('low_vol_leverage_scale', 1.0)
-    low_vol_risk_scale = params.get('low_vol_risk_scale', 0.9)
-    min_risk_per_trade_pct = params.get('min_risk_per_trade_pct', 0.03)  # 3% Untergrenze falls skaliert
+    if not timeframe:
+        raise ValueError("Backtester benötigt ein 'timeframe' Argument für die Daten-Vorbereitung!")
 
-    engine = SREngine(settings=params.get('strategy', {}))
+    data_with_features = create_ann_features(data.copy())
+    data_with_features.dropna(inplace=True)
+    data_with_features['supertrend_direction'] = calculate_supertrend_direction(data_with_features)
+    data_with_features.dropna(inplace=True)
 
+    if data_with_features.empty:
+        return {"total_pnl_pct": 0, "trades_count": 0, "win_rate": 0, "max_drawdown_pct": 1.0, "end_capital": start_capital}
+
+    feature_cols = [
+        'bb_width', 'bb_pband', 'obv', 'rsi', 'macd_diff', 'macd',
+        'atr_normalized', 'adx', 'adx_pos', 'adx_neg',
+        'volume_ratio', 'mfi', 'cmf',
+        'price_to_ema20', 'price_to_ema50',
+        'stoch_k', 'stoch_d', 'williams_r', 'roc', 'cci',
+        'price_to_resistance', 'price_to_support',
+        'high_low_range', 'close_to_high', 'close_to_low',
+        'day_of_week', 'hour_of_day',
+        'returns_lag1', 'returns_lag2', 'returns_lag3', 'hist_volatility'
+    ]
+
+    missing_cols = [col for col in feature_cols if col not in data_with_features.columns]
+    if missing_cols:
+        raise ValueError(f"Fehlende Spalten in data_with_features: {missing_cols}")
+
+    data_for_scaling = data_with_features[feature_cols]
+    features_scaled = scaler.transform(data_for_scaling)
+    predictions = model.predict(features_scaled, verbose=0).flatten()
+    data_with_features['prediction'] = pd.Series(predictions, index=data_with_features.index)
+
+    pred_threshold = params.get('prediction_threshold', 0.6)
+    risk_reward_ratio = params.get('risk_reward_ratio', 3.0)
+    risk_per_trade_pct = params.get('risk_per_trade_pct', 10.0) / 100
+    activation_rr = params.get('trailing_stop_activation_rr', 1.5)
+    callback_rate = params.get('trailing_stop_callback_rate_pct', 0.5) / 100
+    initial_sl_pct = params.get('initial_sl_pct', params.get('min_sl_pct', 1.0)) / 100.0
+    leverage = params.get('leverage', 8)
+    volume_spike_multiplier = params.get('volume_spike_multiplier', 1.5)
+    min_atr_multiplier = params.get('min_atr_multiplier', 1.2)
+    min_adx = params.get('min_adx', 15)
+    fee_pct = 0.05 / 100
+
+    current_capital, trades_count, wins_count = start_capital, 0, 0
+    peak_capital, max_drawdown_pct = start_capital, 0.0
     position = None
     trades = []
-    equity_curve = []
-    liquidated = False
 
-    lookback = max(50, params.get('lookback', 200))
+    for i in range(len(data_with_features)):
+        current = data_with_features.iloc[i]
 
-    for idx in range(lookback, len(df)):
-        window = df.iloc[:idx + 1]
-        current = window.iloc[-1]
-
-        processed = engine.process_dataframe(window.copy())
-        current_candle = processed.iloc[-1]
-
-        # Position Management
         if position:
-            exit_price = None
+            exit_price, reason = None, None
             if position['side'] == 'long':
                 if not position['trailing_active'] and current['high'] >= position['activation_price']:
                     position['trailing_active'] = True
                 if position['trailing_active']:
                     position['peak_price'] = max(position['peak_price'], current['high'])
-                    trailing_sl = position['peak_price'] * (1 - callback_pct)
+                    trailing_sl = position['peak_price'] * (1 - callback_rate)
                     position['stop_loss'] = max(position['stop_loss'], trailing_sl)
                 if current['low'] <= position['stop_loss']:
                     exit_price = position['stop_loss']
                 elif not position['trailing_active'] and current['high'] >= position['take_profit']:
                     exit_price = position['take_profit']
-            else:
+            elif position['side'] == 'short':
                 if not position['trailing_active'] and current['low'] <= position['activation_price']:
                     position['trailing_active'] = True
                 if position['trailing_active']:
                     position['peak_price'] = min(position['peak_price'], current['low'])
-                    trailing_sl = position['peak_price'] * (1 + callback_pct)
+                    trailing_sl = position['peak_price'] * (1 + callback_rate)
                     position['stop_loss'] = min(position['stop_loss'], trailing_sl)
                 if current['high'] >= position['stop_loss']:
                     exit_price = position['stop_loss']
@@ -143,194 +151,101 @@ def simulate_smc_backtest(df, params):
 
             if exit_price:
                 pnl_pct = (exit_price / position['entry_price'] - 1) if position['side'] == 'long' else (1 - exit_price / position['entry_price'])
-                notional = position['notional']
-                pnl_usd = notional * pnl_pct
-                total_fees = notional * fee_pct * 2
+                notional_value = position['margin_used'] * leverage
+                pnl_usd = notional_value * pnl_pct
+                total_fees = notional_value * fee_pct * 2
+                risk_amount_usd = start_capital * risk_per_trade_pct
                 net_pnl = pnl_usd - total_fees
-                equity = max(0, equity + net_pnl)
-                trades.append({
-                    'side': position['side'],
-                    'entry_time': position['entry_time'],
-                    'exit_time': current.name,
-                    'entry': position['entry_price'],
-                    'exit': exit_price,
-                    'pnl_usd': net_pnl
-                })
+                if net_pnl < -risk_amount_usd:
+                    net_pnl = -risk_amount_usd
+                current_capital += net_pnl
+                if position['side'] == 'long':
+                    trades.append({
+                        'entry_long': {'time': position['entry_time'], 'price': position['entry_price']},
+                        'exit_long': {'time': data_with_features.index[i], 'price': exit_price}
+                    })
+                else:
+                    trades.append({
+                        'entry_short': {'time': position['entry_time'], 'price': position['entry_price']},
+                        'exit_short': {'time': data_with_features.index[i], 'price': exit_price}
+                    })
+                if net_pnl > 0:
+                    wins_count += 1
+                trades_count += 1
                 position = None
-                peak_equity = max(peak_equity, equity)
-                if peak_equity > 0:
-                    dd = (peak_equity - equity) / peak_equity
-                    max_dd = max(max_dd, dd)
-                if equity <= 0:
-                    liquidated = True
+                peak_capital = max(peak_capital, current_capital)
+                if peak_capital > 0:
+                    drawdown = (peak_capital - current_capital) / peak_capital
+                    max_drawdown_pct = max(max_drawdown_pct, drawdown)
+                if current_capital <= 0:
                     break
 
-        # Entry-Signal prüfen wenn frei
-        if position is None:
-            # Nutze aggressive Scalper Strategie statt SR-Engine
-            signal_side, signal_price, confidence = get_scalp_signal(window, params)
-            
-            if signal_side:
-                entry_price = signal_price or current['close']
-                current_atr = current_candle.get('atr') or current.get('atr')
-                if pd.isna(current_atr) or current_atr <= 0:
-                    if idx < lookback + 50:
-                        print(f"  [SKIP] ATR invalid: {current_atr}", flush=True)
-                    continue
+        if not position:
+            side = 'long' if current['prediction'] >= pred_threshold else 'short' if current['prediction'] <= (1 - pred_threshold) else None
+            trade_allowed = True
 
-                # Für Scalping: EINFACHE Position-Sizing Logik
-                # Ziel: max 5% des Equity pro Trade
-                leverage = 2.0  # Konservativ für Scalping
-                max_risk_pct = 0.05  # 5% max loss per trade
-                max_notional = equity * leverage
-                
-                # SL basierend auf ATR aber KLEIN für Scalping
-                sl_distance = max(current_atr * 0.5, entry_price * 0.002)  # Min 0.2% SL
-                if sl_distance <= 0:
-                    continue
-                
-                # Vereinfachte Notional: darf nicht größer als 5% vom Equity*leverage sein
-                notional = min(equity * 0.5, (equity * max_risk_pct) / (sl_distance / entry_price) * 10)
-                notional = min(notional, max_notional)  # Cap bei Leverage
-                
-                if notional <= 0:
-                    continue
-                if signal_side == 'buy':
-                    sl_price = entry_price - sl_distance
-                    tp_price = entry_price + sl_distance * 3.0  # 1:3 RR Ratio
-                    activation_price = entry_price + sl_distance * 1.5
-                else:
-                    sl_price = entry_price + sl_distance
-                    tp_price = entry_price - sl_distance * 3.0  # 1:3 RR Ratio
-                    activation_price = entry_price - sl_distance * 1.5
+            if side:
+                st_direction = current['supertrend_direction']
+                if st_direction == 1.0 and side == 'short':
+                    trade_allowed = False
+                elif st_direction == -1.0 and side == 'long':
+                    trade_allowed = False
 
-                position = {
-                    'side': 'long' if signal_side == 'buy' else 'short',
-                    'entry_price': entry_price,
-                    'entry_time': current.name,
-                    'stop_loss': sl_price,
-                    'take_profit': tp_price,
-                    'activation_price': activation_price,
-                    'trailing_active': False,
-                    'peak_price': entry_price,
-                    'notional': notional
-                }
+                if trade_allowed:
+                    current_adx = current.get('adx', 0)
+                    if current_adx < min_adx:
+                        trade_allowed = False
+                    if 'volume_ratio' in current.index:
+                        if current['volume_ratio'] < volume_spike_multiplier:
+                            trade_allowed = False
+                    if i >= 50:
+                        recent_atr = data_with_features['atr_normalized'].iloc[i-50:i]
+                        avg_atr = recent_atr.mean()
+                        if current['atr_normalized'] < avg_atr * min_atr_multiplier:
+                            trade_allowed = False
+                        if current['atr_normalized'] > avg_atr * 2.0:
+                            trade_allowed = False
 
-        equity_curve.append({
-            'timestamp': current.name,
-            'equity': equity
-        })
+                if side and trade_allowed:
+                    entry_price = current['close']
+                    entry_time = data_with_features.index[i]
+                    risk_amount_usd = current_capital * risk_per_trade_pct
 
-    trades_count = len(trades)
-    wins = sum(1 for t in trades if t['pnl_usd'] > 0)
-    win_rate = (wins / trades_count * 100) if trades_count else 0
-    pnl_pct = ((equity - start_capital) / start_capital * 100) if start_capital else 0
+                    sl_distance = entry_price * initial_sl_pct
+                    if sl_distance == 0:
+                        continue
 
+                    notional_value = risk_amount_usd / initial_sl_pct
+                    margin_used = notional_value / leverage
+                    if margin_used > current_capital:
+                        continue
+
+                    stop_loss_distance = entry_price * initial_sl_pct
+                    stop_loss = entry_price - stop_loss_distance if side == 'long' else entry_price + stop_loss_distance
+                    take_profit = entry_price + (entry_price - stop_loss) * risk_reward_ratio if side == 'long' else entry_price - (stop_loss - entry_price) * risk_reward_ratio
+                    activation_price = entry_price + stop_loss_distance * activation_rr if side == 'long' else entry_price - stop_loss_distance * activation_rr
+
+                    position = {
+                        'side': side,
+                        'entry_price': entry_price,
+                        'entry_time': entry_time,
+                        'stop_loss': stop_loss,
+                        'take_profit': take_profit,
+                        'margin_used': margin_used,
+                        'notional_value': notional_value,
+                        'trailing_active': False,
+                        'activation_price': activation_price,
+                        'peak_price': entry_price,
+                        'callback_rate': callback_rate
+                    }
+
+    win_rate = (wins_count / trades_count * 100) if trades_count > 0 else 0
+    final_pnl_pct = ((current_capital - start_capital) / start_capital) * 100 if start_capital > 0 else 0
     return {
-        'final_equity': equity,
-        'start_equity': start_capital,
-        'pnl_pct': pnl_pct,
-        'trades': trades,
-        'trades_count': trades_count,
-        'win_rate': win_rate,
-        'max_drawdown_pct': max_dd * 100,
-        'equity_curve': equity_curve,
-        'liquidated': liquidated
+        "total_pnl_pct": final_pnl_pct,
+        "trades_count": trades_count,
+        "win_rate": win_rate,
+        "max_drawdown_pct": max_drawdown_pct,
+        "end_capital": current_capital,
+        "trades": trades
     }
-
-
-def main():
-    parser = argparse.ArgumentParser(description="DBot SMC Backtester (interaktiv von show_results.sh aufgerufen)")
-    parser.add_argument('--symbol', required=True)
-    parser.add_argument('--timeframe', required=True)
-    parser.add_argument('--start_date', required=True)
-    parser.add_argument('--end_date', required=True)
-    parser.add_argument('--leverage', type=float, default=3.0)
-    parser.add_argument('--risk_per_trade', type=float, default=0.02, help='Dezimal, z.B. 0.02 = 2%')
-    parser.add_argument('--fee_pct', type=float, default=0.0005)
-    parser.add_argument('--atr_multiplier_sl', type=float, default=0.5)
-    parser.add_argument('--min_sl_pct', type=float, default=0.001)
-    parser.add_argument('--risk_reward_ratio', type=float, default=1.5)
-    parser.add_argument('--trailing_stop_activation_rr', type=float, default=1.5)
-    parser.add_argument('--trailing_stop_callback_rate_pct', type=float, default=0.5)
-    parser.add_argument('--start_capital', type=float, default=1000.0)
-    parser.add_argument('--export', type=str, default=None, help='CSV Pfad für Equity-Kurve')
-
-    args = parser.parse_args()
-
-    df = fetch_ohlcv(args.symbol, args.timeframe, args.start_date, args.end_date)
-
-    params = {
-        'market': {
-            'symbol': args.symbol,
-            'timeframe': args.timeframe,
-            'htf': None
-        },
-        'risk': {},
-        'strategy': {},
-        'leverage': args.leverage,
-        'risk_per_trade': args.risk_per_trade,
-        'fee_pct': args.fee_pct,
-        'atr_multiplier_sl': args.atr_multiplier_sl,
-        'min_sl_pct': args.min_sl_pct,
-        'risk_reward_ratio': args.risk_reward_ratio,
-        'trailing_stop_activation_rr': args.trailing_stop_activation_rr,
-        'trailing_stop_callback_rate_pct': args.trailing_stop_callback_rate_pct,
-        'start_capital': args.start_capital
-    }
-
-    result = simulate_smc_backtest(df, params)
-    if 'error' in result:
-        print(result['error'])
-        sys.exit(1)
-
-    print("====================================================")
-    print(f"Backtest: {args.symbol} ({args.timeframe}) {args.start_date} -> {args.end_date}")
-    if result.get('liquidated'):
-        print(f"Start: {result['start_equity']:.2f} | Ende: 0.00 | LIQUIDIERT")
-    else:
-        print(f"Start: {result['start_equity']:.2f} | Ende: {result['final_equity']:.2f} | PnL: {result['pnl_pct']:.2f}%")
-    print(f"Trades: {result['trades_count']} | Win-Rate: {result['win_rate']:.2f}% | Max DD: {result['max_drawdown_pct']:.2f}%")
-
-    if args.export:
-        try:
-            # Convert to absolute path
-            export_abs = os.path.abspath(args.export)
-            export_dir = os.path.dirname(export_abs)
-            
-            # Ensure directory exists
-            os.makedirs(export_dir, exist_ok=True)
-            
-            # Export equity curve
-            equity_df = pd.DataFrame(result['equity_curve'])
-            equity_df.to_csv(export_abs, index=False)
-            print(f"Equity-Kurve exportiert nach {export_abs}")
-            
-            # Export parameters
-            base, _ = os.path.splitext(export_abs)
-            params_out = base + "_params.json"
-            meta = {
-                'symbol': args.symbol,
-                'timeframe': args.timeframe,
-                'start_date': args.start_date,
-                'end_date': args.end_date,
-                'leverage': args.leverage,
-                'risk_per_trade': args.risk_per_trade,
-                'fee_pct': args.fee_pct,
-                'atr_multiplier_sl': args.atr_multiplier_sl,
-                'min_sl_pct': args.min_sl_pct,
-                'risk_reward_ratio': args.risk_reward_ratio,
-                'trailing_stop_activation_rr': args.trailing_stop_activation_rr,
-                'trailing_stop_callback_rate_pct': args.trailing_stop_callback_rate_pct,
-                'start_capital': args.start_capital
-            }
-            with open(params_out, 'w') as f:
-                json.dump(meta, f, indent=2)
-            print(f"Run-Parameter gespeichert nach {params_out}")
-        except Exception as e:
-            print(f"FEHLER beim Speichern: {e}", file=sys.stderr)
-            sys.exit(1)
-
-
-if __name__ == '__main__':
-    main()

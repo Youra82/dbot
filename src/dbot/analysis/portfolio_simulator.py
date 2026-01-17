@@ -7,10 +7,11 @@ import sys
 from datetime import datetime
 import math
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-import sys
-print("portfolio_simulator.py ist veraltet. dbot nutzt keine ANN-Pipeline mehr. Bitte ./show_results.sh für SMC-Backtests verwenden.")
-sys.exit(1)
+from dbot.utils.ann_model import prepare_data_for_ann, create_ann_features
+from dbot.analysis.backtester import load_data, calculate_supertrend_direction
 
 
 def run_portfolio_simulation(start_capital, strategies_data, start_date, end_date):

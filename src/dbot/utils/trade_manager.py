@@ -1,4 +1,4 @@
-# /root/dbot/src/dbot/utils/trade_manager.py
+# /root/stbot/src/stbot/utils/trade_manager.py
 import json
 import logging
 import os
@@ -11,12 +11,12 @@ import pandas as pd
 import ta
 import math
 
-# Imports angepasst auf dbot (aggressive scalping)
-from dbot.strategy.sr_engine import SREngine
-from dbot.strategy.trade_logic import get_titan_signal
-from dbot.utils.exchange import Exchange
-from dbot.utils.telegram import send_message
-from dbot.utils.timeframe_utils import determine_htf
+# Imports angepasst auf stbot
+from stbot.strategy.sr_engine import SREngine
+from stbot.strategy.trade_logic import get_titan_signal
+from stbot.utils.exchange import Exchange
+from stbot.utils.telegram import send_message
+from stbot.utils.timeframe_utils import determine_htf
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 ARTIFACTS_PATH = os.path.join(PROJECT_ROOT, 'artifacts')
@@ -172,11 +172,14 @@ def check_and_open_new_position(exchange, model, scaler, params, telegram_config
             logger.info("Position bereits offen – überspringe.")
             return
 
-        # Risk Management (Basiswerte)
+        # Risk Management
         risk_params = params.get('risk', {})
+        leverage = risk_params.get('leverage', 10)
         margin_mode = risk_params.get('margin_mode', 'isolated')
-        base_leverage = risk_params.get('leverage', 10)
-        leverage = base_leverage
+
+        # Versuche Einstellungen zu setzen (return jetzt True auch bei Fehler, damit wir weitermachen)
+        exchange.set_margin_mode(symbol, margin_mode)
+        exchange.set_leverage(symbol, leverage)
 
         balance = exchange.fetch_balance_usdt()
         if balance <= 0:
@@ -189,39 +192,12 @@ def check_and_open_new_position(exchange, model, scaler, params, telegram_config
         # Adaptive RR basierend auf Volatilität
         base_rr = risk_params.get('risk_reward_ratio', 2.0)
         risk_pct = risk_params.get('risk_per_trade_pct', 1.0) / 100.0
+        risk_usdt = balance * risk_pct
 
         atr_multiplier_sl = risk_params.get('atr_multiplier_sl', 2.0)
         min_sl_pct = risk_params.get('min_sl_pct', 0.3) / 100.0
 
         current_atr = current_candle.get('atr')
-
-        # Dynamische Risiko-/Leverage-Anpassung je nach aktueller Volatilität
-        dynamic_enabled = risk_params.get('dynamic_risk_enabled', True)
-        high_vol_threshold = risk_params.get('high_vol_threshold', 1.5)
-        high_vol_leverage_scale = risk_params.get('high_vol_leverage_scale', 0.6)
-        high_vol_risk_scale = risk_params.get('high_vol_risk_scale', 0.7)
-        low_vol_threshold = risk_params.get('low_vol_threshold', 0.8)
-        low_vol_leverage_scale = risk_params.get('low_vol_leverage_scale', 1.0)
-        low_vol_risk_scale = risk_params.get('low_vol_risk_scale', 1.0)
-
-        if dynamic_enabled and not pd.isna(current_atr) and current_atr > 0:
-            atr_avg = processed_data['atr'].tail(50).mean()
-            if atr_avg and atr_avg > 0:
-                vol_ratio = current_atr / atr_avg
-                if vol_ratio >= high_vol_threshold:
-                    leverage = max(1, base_leverage * high_vol_leverage_scale)
-                    risk_pct = max(risk_pct * high_vol_risk_scale, risk_params.get('min_risk_per_trade_pct', risk_pct * 100) / 100.0)
-                    logger.info(f"High Vol erkannt (ATR-Ratio {vol_ratio:.2f}) – Leverage {leverage} | Risiko {risk_pct*100:.2f}%")
-                elif vol_ratio <= low_vol_threshold:
-                    leverage = max(1, base_leverage * low_vol_leverage_scale)
-                    risk_pct = risk_pct * low_vol_risk_scale
-                    logger.info(f"Low Vol erkannt (ATR-Ratio {vol_ratio:.2f}) – Leverage {leverage} | Risiko {risk_pct*100:.2f}%")
-
-        # Versuche Einstellungen zu setzen (return jetzt True auch bei Fehler, damit wir weitermachen)
-        exchange.set_margin_mode(symbol, margin_mode)
-        exchange.set_leverage(symbol, leverage)
-
-        risk_usdt = balance * risk_pct
         
         # Adaptive RR: Bei hoher Volatilität höheres RR
         if not pd.isna(current_atr) and current_atr > 0:

@@ -1,13 +1,10 @@
 import os
 import sys
-print("find_best_threshold.py ist veraltet. dbot nutzt keine ANN-Pipeline mehr. Bitte ./show_results.sh für SMC-Backtests verwenden.")
-sys.exit(1)
-
-import os
-import json
-import pandas as pd
-import numpy as np
 import argparse
+import numpy as np
+import pandas as pd
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from dbot.analysis.backtester import load_data
