@@ -1,147 +1,119 @@
 # master_runner.py
-"""
-DBot Master Runner - High-Frequency Momentum Scalper
-Startet alle aktiven Trading-Strategien
-"""
 import json
 import subprocess
 import sys
 import os
-from datetime import datetime
+import time
 
-# Path setup
+# Pfad anpassen, damit die utils importiert werden können
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = SCRIPT_DIR
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
+# *** Geändert: Importpfad ***
+from dbot.utils.exchange import Exchange
 
 def main():
     """
-    Master Runner für DBot
-    - Liest settings.json für aktive Strategien
-    - Startet separate Prozesse für jede Strategie
+    Der Master Runner für den dbot (Voll-Dynamisches Kapital).
+    - Liest die settings.json, um den Modus (Autopilot/Manuell) zu bestimmen.
+    - Startet für jede als "active" markierte Strategie einen separaten run.py Prozess
+      innerhalb der korrekten virtuellen Umgebung.
     """
     settings_file = os.path.join(SCRIPT_DIR, 'settings.json')
-    secret_file = os.path.join(SCRIPT_DIR, 'secret.json')
+    optimization_results_file = os.path.join(SCRIPT_DIR, 'artifacts', 'results', 'optimization_results.json')
+    # *** Geändert: Pfad zum Bot-Runner ***
     bot_runner_script = os.path.join(SCRIPT_DIR, 'src', 'dbot', 'strategy', 'run.py')
-    
-    # Python Interpreter (Virtual Environment)
+    secret_file = os.path.join(SCRIPT_DIR, 'secret.json')
+
+    # Finde den exakten Pfad zum Python-Interpreter in der virtuellen Umgebung
     python_executable = os.path.join(SCRIPT_DIR, '.venv', 'bin', 'python3')
     if not os.path.exists(python_executable):
-        # Windows alternative
-        python_executable = os.path.join(SCRIPT_DIR, '.venv', 'Scripts', 'python.exe')
-    if not os.path.exists(python_executable):
-        python_executable = 'python'  # Fallback to system python
-    
-    print("=" * 70)
-    print("🚀 DBot Master Runner v1.0")
-    print("   High-Frequency Momentum Scalper")
-    print("=" * 70)
-    print()
-    
-    # Load settings
+        print(f"Fehler: Python-Interpreter in der venv nicht gefunden unter {python_executable}")
+        return
+
+    print("=======================================================")
+    # *** Geändert: Name ***
+    print("dbot Master Runner v1.0")
+    print("=======================================================")
+
     try:
         with open(settings_file, 'r') as f:
             settings = json.load(f)
-        
+
         with open(secret_file, 'r') as f:
             secrets = json.load(f)
-        
-        if 'dbot' not in secrets:
-            print("❌ Fehler: Kein 'dbot' Account in secret.json gefunden!")
+
+        # *** Geändert: Account-Name (nun 'dbot') ***
+        if not secrets.get('dbot'):
+            print("Fehler: Kein 'dbot'-Account in secret.json gefunden.")
             return
+        main_account_config = secrets['dbot'][0]
+
+        print(f"Frage Kontostand für Account '{main_account_config.get('name', 'Standard')}' ab...")
         
-    except FileNotFoundError as e:
-        print(f"❌ Fehler: Datei nicht gefunden: {e}")
-        return
-    except json.JSONDecodeError as e:
-        print(f"❌ Fehler: Ungültige JSON: {e}")
-        return
-    
-    # Get active strategies
-    active_strategies = [
-        s for s in settings['live_trading_settings']['active_strategies']
-        if s.get('active', False)
-    ]
-    
-    if not active_strategies:
-        print("⚠️  Keine aktiven Strategien gefunden in settings.json!")
-        print("   Setze 'active': true für mindestens eine Strategie")
-        return
-    
-    print(f"📊 Gefundene aktive Strategien: {len(active_strategies)}")
-    print()
-    
-    # Start strategy processes
-    processes = []
-    
-    for i, strategy in enumerate(active_strategies, 1):
-        symbol = strategy['symbol']
-        timeframe = strategy['timeframe']
-        use_momentum_filter = strategy.get('use_momentum_filter', True)
-        
-        print(f"[{i}/{len(active_strategies)}] Starte Strategie:")
-        print(f"   Symbol: {symbol}")
-        print(f"   Timeframe: {timeframe}")
-        print(f"   Momentum Filter: {use_momentum_filter}")
-        
-        try:
-            # Start subprocess
-            cmd = [
+        live_settings = settings.get('live_trading_settings', {})
+        use_autopilot = live_settings.get('use_auto_optimizer_results', False)
+
+        strategy_list = []
+        if use_autopilot:
+            print("Modus: Autopilot. Lese Strategien aus den Optimierungs-Ergebnissen...")
+            with open(optimization_results_file, 'r') as f:
+                strategy_config = json.load(f)
+            strategy_list = strategy_config.get('optimal_portfolio', [])
+        else:
+            print("Modus: Manuell. Lese Strategien aus den manuellen Einstellungen...")
+            strategy_list = live_settings.get('active_strategies', [])
+
+        if not strategy_list:
+            print("Keine aktiven Strategien zum Ausführen gefunden.")
+            return
+
+        print("=======================================================")
+
+        for strategy_info in strategy_list:
+            if isinstance(strategy_info, dict) and not strategy_info.get("active", True):
+                symbol = strategy_info.get('symbol', 'N/A')
+                timeframe = strategy_info.get('timeframe', 'N/A')
+                print(f"\n--- Überspringe inaktive Strategie: {symbol} ({timeframe}) ---")
+                continue
+
+            symbol, timeframe, use_macd = None, None, None # use_macd wird für Ichimoku nicht verwendet
+
+            if use_autopilot and isinstance(strategy_info, str):
+                # ... (Diese Logik muss ggf. angepasst werden, wenn der Autopilot
+                # ... (für Ichimoku genutzt wird, aktuell ignoriert)
+                pass 
+            
+            elif isinstance(strategy_info, dict):
+                symbol = strategy_info.get('symbol')
+                timeframe = strategy_info.get('timeframe')
+                # use_macd wird nicht mehr benötigt, aber wir müssen einen
+                # Dummy-Wert übergeben, da run.py es erwartet
+                use_macd = strategy_info.get('use_macd_filter', False) 
+
+            if not all([symbol, timeframe, use_macd is not None]):
+                print(f"Warnung: Unvollständige Strategie-Info: {strategy_info}. Überspringe.")
+                continue
+
+            print(f"\n--- Starte Bot für: {symbol} ({timeframe}) ---")
+
+            command = [
                 python_executable,
                 bot_runner_script,
-                symbol,
-                timeframe,
-                str(use_momentum_filter).lower()
+                "--symbol", symbol,
+                "--timeframe", timeframe,
+                # Wir übergeben 'use_macd' als Dummy-Argument, da 'run.py' es erwartet
+                "--use_macd", str(use_macd) 
             ]
-            
-            log_file = os.path.join(SCRIPT_DIR, 'logs', f'dbot_{symbol.replace("/", "")}_{timeframe}.log')
-            os.makedirs(os.path.dirname(log_file), exist_ok=True)
-            
-            with open(log_file, 'a') as log:
-                log.write(f"\n{'='*70}\n")
-                log.write(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                log.write(f"{'='*70}\n\n")
-                
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    cwd=PROJECT_ROOT
-                )
-                processes.append(process)
-            
-            print(f"   ✅ Prozess gestartet (PID: {process.pid})")
-            print(f"   📝 Log: {log_file}")
-            print()
-            
-        except Exception as e:
-            print(f"   ❌ Fehler beim Starten: {e}")
-            print()
-    
-    if not processes:
-        print("❌ Keine Prozesse gestartet!")
-        return
-    
-    print("=" * 70)
-    print(f"✅ {len(processes)} Strategie(n) erfolgreich gestartet")
-    print("=" * 70)
-    print()
-    print("💡 Tipps:")
-    print("   - Logs anzeigen: tail -f logs/dbot_*.log")
-    print("   - Status prüfen: ./show_status.sh")
-    print("   - Bot stoppen: pkill -f 'dbot'")
-    print()
-    
-    # Wait for all processes
-    try:
-        for process in processes:
-            process.wait()
-    except KeyboardInterrupt:
-        print("\n⚠️  Master Runner gestoppt durch Benutzer")
-        for process in processes:
-            process.terminate()
 
+            subprocess.Popen(command)
+            time.sleep(2)
+
+    except FileNotFoundError as e:
+        print(f"Fehler: Eine wichtige Datei wurde nicht gefunden: {e}")
+    except Exception as e:
+        print(f"Ein unerwarteter Fehler im Master Runner ist aufgetreten: {e}")
 
 if __name__ == "__main__":
     main()

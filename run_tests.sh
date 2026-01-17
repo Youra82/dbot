@@ -1,21 +1,27 @@
 #!/bin/bash
-# Dieses Skript führt das komplette Test-Sicherheitsnetz aus.
-echo "--- Starte DBot-Sicherheitsnetz ---"
+echo "--- Starte UtBot2-Sicherheitsnetz ---"
 
-# Aktiviere die virtuelle Umgebung
-if [ -d ".venv" ]; then
-    source .venv/bin/activate
-else
-    echo "❌ Virtual Environment nicht gefunden"
-    echo "   Führe erst ./install.sh aus"
+if [ ! -f ".venv/bin/activate" ]; then
+    echo "Fehler: Virtuelle Umgebung nicht gefunden. Bitte install.sh ausführen."
     exit 1
 fi
+source .venv/bin/activate
 
-# Führe pytest aus. -v für mehr Details, -s um print() Ausgaben anzuzeigen.
-python3 -m pytest -v -s
+echo "Führe Pytest aus (inkl. Live-Workflow-Test)..."
+if python3 -m pytest -v -s; then
+    echo "Pytest erfolgreich durchgelaufen. Alle Tests bestanden."
+    EXIT_CODE=0
+else
+    PYTEST_EXIT_CODE=$?
+    if [ $PYTEST_EXIT_CODE -eq 5 ]; then
+        echo "Pytest beendet: Keine Tests zum Ausführen gefunden."
+        EXIT_CODE=0
+    else
+        echo "Pytest fehlgeschlagen (Exit Code: $PYTEST_EXIT_CODE)."
+        EXIT_CODE=$PYTEST_EXIT_CODE
+    fi
+fi
 
-# Deaktiviere die Umgebung wieder
 deactivate
-
 echo "--- Sicherheitscheck abgeschlossen ---"
-
+exit $EXIT_CODE

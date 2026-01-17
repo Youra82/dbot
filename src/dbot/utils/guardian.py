@@ -1,11 +1,8 @@
-# src/dbot/utils/guardian.py
-"""
-Guardian Decorator für DBot
-Fängt kritische Fehler ab und verhindert Abstürze
-"""
+# src/utbot2/utils/guardian.py
 import logging
 from functools import wraps
-from dbot.utils.telegram import send_message
+# *** Geänderter Importpfad ***
+from utbot2.utils.telegram import send_message
 
 def guardian_decorator(func):
     """
@@ -28,7 +25,7 @@ def guardian_decorator(func):
                 telegram_config = arg
             if isinstance(arg, dict) and 'market' in arg:
                 params = arg
-        
+
         if not logger:
             # Fallback, falls kein Logger übergeben wird
             logger = logging.getLogger("guardian_fallback")
@@ -41,10 +38,10 @@ def guardian_decorator(func):
         except Exception as e:
             symbol = params.get('market', {}).get('symbol', 'Unbekannt')
             timeframe = params.get('market', {}).get('timeframe', 'N/A')
-            
+
             error_message = f"Ein kritischer Systemfehler ist im Guardian-Decorator für {symbol} ({timeframe}) aufgetreten."
             detailed_error = f"Fehlerdetails: {e.__class__.__name__}: {e}"
-            
+
             logger.critical("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
             logger.critical("!!! KRITISCHER SYSTEMFEHLER IM GUARDIAN !!!")
             logger.critical(f"!!! Strategie: {symbol} ({timeframe})")
@@ -53,7 +50,8 @@ def guardian_decorator(func):
 
             # Sende eine Telegram-Nachricht
             try:
-                telegram_message = f"🚨 *Kritischer Systemfehler* im DBot Guardian-Decorator für *{symbol} ({timeframe})*."
+                # *** Geänderter Name ***
+                telegram_message = f"🚨 *Kritischer Systemfehler* im Guardian-Decorator für *{symbol} ({timeframe})*."
                 send_message(
                     telegram_config.get('bot_token'),
                     telegram_config.get('chat_id'),
