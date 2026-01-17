@@ -1,9 +1,7 @@
-# src/dbot/analysis/portfolio_optimizer.py (Version 1 - Ported from JaegerBot)
-import pandas as pd
-import itertools
-from tqdm import tqdm
-
-from dbot.analysis.portfolio_simulator import run_portfolio_simulation
+# src/dbot/analysis/portfolio_optimizer.py (deprecated)
+import sys
+print("portfolio_optimizer.py ist veraltet. dbot nutzt keine ANN-Pipeline mehr. Bitte ./show_results.sh für SMC-Backtests verwenden.")
+sys.exit(1)
 
 
 def run_portfolio_optimizer(start_capital, strategies_data, start_date, end_date, max_drawdown=100.0):

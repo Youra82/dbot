@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e
+
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
@@ -6,99 +8,79 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 VENV_PATH=".venv/bin/activate"
-RESULTS_SCRIPT="src/dbot/analysis/show_results.py"
-OPTIMAL_CONFIGS_FILE=".optimal_configs.tmp"
-UPDATE_SCRIPT="update_settings_from_optimizer.py"
+BACKTESTER="src/dbot/analysis/backtester.py"
+EXPORT_DIR="artifacts/backtests"
+
+if [ ! -f "$VENV_PATH" ]; then
+    echo -e "${RED}Virtuelle Umgebung nicht gefunden. Bitte ./install.sh ausführen.${NC}"
+    exit 1
+fi
 
 source "$VENV_PATH"
 
+mkdir -p "$EXPORT_DIR"
+
 echo -e "${BLUE}======================================================="
-echo "   DBot Ergebnisse & Analyse"
+echo "   DBot SMC Backtest (interaktiv)"
 echo -e "=======================================================${NC}"
 
-# --- MODUS-MENÜ (JaegerBot kompatibel) ---
-echo -e "\n${YELLOW}Wähle einen Analyse-Modus:${NC}"
-echo "  1) Einzel-Analyse (jede Strategie wird isoliert getestet)"
-echo "  2) Manuelle Portfolio-Simulation (du wählst das Team)"
-echo "  3) Automatische Portfolio-Optimierung (der Bot wählt das beste Team)"
-echo "  4) Interaktive Charts (Entry/Exit-Signale nur, keine Indikatoren)"
-read -p "Auswahl (1-4) [Standard: 1]: " MODE
-MODE=${MODE:-1}
+read -p "Symbole (z.B. BTC/USDT:USDT ETH/USDT:USDT): " SYMBOLS
+read -p "Timeframe (z.B. 1m oder 5m): " TIMEFRAME
+read -p "Startdatum (YYYY-MM-DD): " START_DATE
+read -p "Enddatum   (YYYY-MM-DD): " END_DATE
+read -p "Startkapital [1000]: " START_CAPITAL; START_CAPITAL=${START_CAPITAL:-1000}
+read -p "Leverage   [8]: " LEV; LEV=${LEV:-8}
+read -p "Risk per Trade (Dezimal, 0.12 = 12%) [0.12]: " RISK; RISK=${RISK:-0.12}
+read -p "Fee pct (0.0005 = 0.05%) [0.0005]: " FEE; FEE=${FEE:-0.0005}
 
+RESULT_FILES=()
 
-python3 "$RESULTS_SCRIPT" --mode "$MODE"
+for SYM in $SYMBOLS; do
+    SAFE_NAME=$(echo "$SYM" | sed 's#[/:]#-#g')
+    OUT_FILE="$EXPORT_DIR/${SAFE_NAME}_${TIMEFRAME}.csv"
+    echo -e "\n${GREEN}>>> Backtest $SYM ($TIMEFRAME)...${NC}"
+    python "$BACKTESTER" \
+      --symbol "$SYM" \
+      --timeframe "$TIMEFRAME" \
+      --start_date "$START_DATE" \
+      --end_date "$END_DATE" \
+      --leverage "$LEV" \
+      --risk_per_trade "$RISK" \
+      --fee_pct "$FEE" \
+      --start_capital "$START_CAPITAL" \
+      --export "$OUT_FILE"
+    RESULT_FILES+=("$OUT_FILE")
+done
 
-# --- OPTION 4: INTERAKTIVE CHARTS ---
-if [ "$MODE" == "4" ]; then
-    echo -e "\n${YELLOW}========== INTERAKTIVE CHARTS ===========${NC}"
-    echo ""
-    echo "Wähle Konfigurationsdateien von der Liste oben"
-    echo ""
-    python3 src/dbot/analysis/interactive_status.py
-    
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ Charts wurden generiert!${NC}"
-    else
-        echo -e "${RED}❌ Fehler beim Generieren der Charts.${NC}"
-    fi
-    
-    deactivate
-    exit 0
-fi
+COUNT=${#RESULT_FILES[@]}
+if [ $COUNT -gt 1 ]; then
+    AGG_FILES="${RESULT_FILES[@]}"
+    echo -e "\n${BLUE}Aggregiere kombinierte Equity aller Backtests...${NC}"
+    python - <<PY
+import pandas as pd, sys
+files = "${AGG_FILES}".split()
+dfs = []
+for p in files:
+    try:
+        df = pd.read_csv(p, parse_dates=['timestamp'])
+        name = p.split('/')[-1].replace('.csv','')
+        dfs.append(df.rename(columns={'equity': name}).set_index('timestamp'))
+    except Exception as e:
+        print(f"Warnung: konnte {p} nicht laden: {e}")
 
-if [ "$MODE" == "3" ] && [ -f "$OPTIMAL_CONFIGS_FILE" ]; then
-    echo ""
-    echo -e "${YELLOW}========================================${NC}"
-    echo -e "${YELLOW}  SETTINGS AUTOMATISCH AKTUALISIEREN?${NC}"
-    echo -e "${YELLOW}========================================${NC}"
-    echo ""
-    echo "Die optimierten Strategien können jetzt automatisch"
-    echo "in die settings.json übernommen werden."
-    echo ""
-    echo -e "${RED}ACHTUNG:${NC} Dies ersetzt alle aktuellen Strategien!"
-    echo "Es wird automatisch ein Backup erstellt (settings.json.backup)."
-    echo ""
-    read -p "Sollen die optimierten Strategien übernommen werden? (j/n): " APPLY_SETTINGS
-    
-    if [[ "$APPLY_SETTINGS" =~ ^[jJyY]$ ]]; then
-        echo ""
-        echo -e "${BLUE}Aktualisiere settings.json...${NC}"
-        
-        # Lese Config-Dateien aus Temp-Datei
-        CONFIGS=$(cat "$OPTIMAL_CONFIGS_FILE")
-        
-        # Rufe Python-Script auf mit allen Config-Namen als Argumente
-        python3 "$UPDATE_SCRIPT" $CONFIGS
-        
-        if [ $? -eq 0 ]; then
-            echo ""
-            echo -e "${GREEN}✅ Settings wurden erfolgreich aktualisiert!${NC}"
-            echo -e "${GREEN}   Backup wurde erstellt: settings.json.backup${NC}"
-        else
-            echo ""
-            echo -e "${RED}❌ Fehler beim Aktualisieren der Settings.${NC}"
-        fi
-        
-        # Lösche Temp-Datei
-        rm -f "$OPTIMAL_CONFIGS_FILE"
-    else
-        echo ""
-        echo -e "${YELLOW}ℹ  Settings wurden NICHT aktualisiert.${NC}"
-        echo "Du kannst die Strategien später manuell in settings.json eintragen."
-        
-        # Lösche Temp-Datei
-        rm -f "$OPTIMAL_CONFIGS_FILE"
-    fi
+if not dfs:
+    print("Keine Dateien für Aggregation gefunden.")
+    sys.exit(0)
+
+combo = pd.concat(dfs, axis=1).sort_index().ffill()
+combo['equity_sum'] = combo.sum(axis=1)
+out = 'artifacts/backtests/combined_equity.csv'
+combo.to_csv(out)
+print(f"Kombinierte Equity gespeichert: {out}")
+print(combo.tail())
+PY
 fi
 
 deactivate
 
-
-echo -e "\n${BLUE}=======================================================${NC}"
-echo -e "${BLUE}  Nützliche Befehle:${NC}"
-echo -e "${BLUE}=======================================================${NC}"
-echo "  ./show_status.sh               # Bot Status prüfen"
-echo "  tail -f logs/dbot_*.log        # Alle Logs live"
-echo "  grep 'Position' logs/*.log     # Alle Trade-Ereignisse"
-echo "  python master_runner.py        # Bot starten"
-echo -e "${BLUE}=======================================================${NC}"
+echo -e "\n${BLUE}Fertig. Siehe artifacts/backtests/*.csv${NC}"

@@ -1,5 +1,8 @@
-import os
 import sys
+print("optimizer.py ist veraltet. dbot nutzt keine ANN-Pipeline mehr. Bitte ./show_results.sh für SMC-Backtests verwenden.")
+sys.exit(1)
+
+import os
 import json
 import optuna
 import numpy as np

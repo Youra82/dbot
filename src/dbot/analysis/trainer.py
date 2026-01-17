@@ -2,9 +2,8 @@ import os
 import sys
 import argparse
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+print("trainer.py ist veraltet. dbot nutzt keine ANN-Pipeline mehr. Bitte ./show_results.sh für SMC-Backtests verwenden.")
+sys.exit(1)
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from dbot.utils import ann_model
