@@ -1,15 +1,15 @@
 {
   "symbol": "BTC/USDT:USDT",
   "timeframe": "1m",
-  "optimized_at": "2026-01-17T14:08:14.013327",
+  "optimized_at": "2026-01-17T14:49:16.091023",
   "performance": {
-    "pnl_pct": 0.9512114006129422,
+    "pnl_pct": 0.951211400612948,
     "trades": 15,
     "win_rate": 53.333333333333336,
-    "max_drawdown": 0.44932533750001413
+    "max_drawdown": 0.4493253375000063
   },
   "parameters": {
-    "start_capital": 1000.0,
+    "start_capital": 20.0,
     "rsi_period": 14,
     "rsi_oversold": 25,
     "rsi_overbought": 75,

@@ -89,8 +89,8 @@ def optimize_parameters(symbol, timeframe, start_date, end_date, start_capital=1
     Optimiert Parameter durch Grid-Search
     """
     print(f"\n{'='*60}")
-    print(f"  Optimizer für {symbol} ({timeframe})")
-    print(f"  Zeitraum: {start_date} → {end_date}")
+    print(f"  Optimizer fuer {symbol} ({timeframe})")
+    print(f"  Zeitraum: {start_date} -> {end_date}")
     print(f"{'='*60}\n")
     
     # Parameter-Grid erstellen
@@ -141,7 +141,7 @@ def optimize_parameters(symbol, timeframe, start_date, end_date, start_capital=1
         if score > best_score:
             best_score = score
             best_result = result
-            print(f"  → NEW BEST! PnL={result['pnl_pct']:.2f}% WR={result['win_rate']:.1f}% DD={result['max_dd']:.2f}% Trades={result['trades']} (Score={score:.2f})")
+            print(f"  [NEW BEST] PnL={result['pnl_pct']:.2f}% WR={result['win_rate']:.1f}% DD={result['max_dd']:.2f}% Trades={result['trades']} (Score={score:.2f})")
     
     return best_result, results
 
@@ -186,6 +186,12 @@ def main():
     parser.add_argument('--start_capital', type=float, default=1000, help='Starting capital in USDT')
     
     args = parser.parse_args()
+    
+    # Warnung für zu kleines Kapital
+    if args.start_capital < 100:
+        print(f"\n[WARNING] Starting capital is very low ({args.start_capital} USDT)")
+        print(f"[WARNING] Minimum recommended: 100 USDT for safe trading")
+        print(f"[WARNING] Backtest results may not match live trading due to minimum order sizes\n")
     
     # Intelligente Datumsbereich-Auswahl
     if not args.start_date or not args.end_date:
