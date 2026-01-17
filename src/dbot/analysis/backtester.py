@@ -103,6 +103,7 @@ def simulate_smc_backtest(df, params):
     position = None
     trades = []
     equity_curve = []
+    liquidated = False
 
     lookback = max(50, params.get('lookback', 200))
 
