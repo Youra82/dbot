@@ -42,10 +42,12 @@ def fetch_ohlcv(symbol, timeframe, start_date, end_date):
     try:
         account_config = load_account_config()
         exchange = Exchange(account_config)
+        print(f"[FETCH] {symbol} {timeframe} {start_date} -> {end_date} ...", flush=True)
         df = exchange.fetch_historical_ohlcv(symbol, timeframe, start_date, end_date)
         if df is None or df.empty:
             print(f"FEHLER: Keine Daten für {symbol} {timeframe} im Zeitraum {start_date} - {end_date}")
             return pd.DataFrame()
+        print(f"[FETCH] Fertig: {len(df)} Kerzen", flush=True)
         return df
     except Exception as e:
         print(f"FEHLER beim Datenabruf: {e}")

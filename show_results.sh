@@ -49,6 +49,7 @@ for SYM_SHORT in $SYMBOLS_INPUT; do
         SAFE_NAME=$(echo "$SYM" | sed 's#[/:]#-#g')
         OUT_FILE="$EXPORT_DIR/${SAFE_NAME}_${TF}.csv"
         echo -e "\n${GREEN}>>> Backtest $SYM ($TF)...${NC}"
+        echo -e "${BLUE}Lade Daten... bitte warten${NC}"
         python "$BACKTESTER" \
           --symbol "$SYM" \
           --timeframe "$TF" \
@@ -59,6 +60,12 @@ for SYM_SHORT in $SYMBOLS_INPUT; do
           --fee_pct "$FEE" \
           --start_capital "$START_CAPITAL" \
           --export "$OUT_FILE"
+
+        STATUS=$?
+        if [ $STATUS -ne 0 ]; then
+            echo -e "${RED}Fehler bei $SYM ($TF) – überspringe.${NC}"
+            continue
+        fi
         RESULT_FILES+=("$OUT_FILE")
     done
 done
