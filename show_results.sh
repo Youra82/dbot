@@ -25,31 +25,35 @@ echo "   DBot SMC Backtest (interaktiv)"
 echo -e "=======================================================${NC}"
 
 read -p "Symbole (z.B. BTC/USDT:USDT ETH/USDT:USDT): " SYMBOLS
-read -p "Timeframe (z.B. 1m oder 5m): " TIMEFRAME
+read -p "Timeframes (z.B. 1m 5m): " TIMEFRAMES
 read -p "Startdatum (YYYY-MM-DD): " START_DATE
-read -p "Enddatum   (YYYY-MM-DD): " END_DATE
+read -p "Enddatum (heute) [Enter = heute]: " END_DATE; END_DATE=${END_DATE:-$(date +%F)}
 read -p "Startkapital [1000]: " START_CAPITAL; START_CAPITAL=${START_CAPITAL:-1000}
-read -p "Leverage   [8]: " LEV; LEV=${LEV:-8}
-read -p "Risk per Trade (Dezimal, 0.12 = 12%) [0.12]: " RISK; RISK=${RISK:-0.12}
-read -p "Fee pct (0.0005 = 0.05%) [0.0005]: " FEE; FEE=${FEE:-0.0005}
+
+# Fixe Werte (nicht mehr abgefragt)
+LEV=8
+RISK=0.12
+FEE=0.0005
 
 RESULT_FILES=()
 
 for SYM in $SYMBOLS; do
-    SAFE_NAME=$(echo "$SYM" | sed 's#[/:]#-#g')
-    OUT_FILE="$EXPORT_DIR/${SAFE_NAME}_${TIMEFRAME}.csv"
-    echo -e "\n${GREEN}>>> Backtest $SYM ($TIMEFRAME)...${NC}"
-    python "$BACKTESTER" \
-      --symbol "$SYM" \
-      --timeframe "$TIMEFRAME" \
-      --start_date "$START_DATE" \
-      --end_date "$END_DATE" \
-      --leverage "$LEV" \
-      --risk_per_trade "$RISK" \
-      --fee_pct "$FEE" \
-      --start_capital "$START_CAPITAL" \
-      --export "$OUT_FILE"
-    RESULT_FILES+=("$OUT_FILE")
+    for TF in $TIMEFRAMES; do
+        SAFE_NAME=$(echo "$SYM" | sed 's#[/:]#-#g')
+        OUT_FILE="$EXPORT_DIR/${SAFE_NAME}_${TF}.csv"
+        echo -e "\n${GREEN}>>> Backtest $SYM ($TF)...${NC}"
+        python "$BACKTESTER" \
+          --symbol "$SYM" \
+          --timeframe "$TF" \
+          --start_date "$START_DATE" \
+          --end_date "$END_DATE" \
+          --leverage "$LEV" \
+          --risk_per_trade "$RISK" \
+          --fee_pct "$FEE" \
+          --start_capital "$START_CAPITAL" \
+          --export "$OUT_FILE"
+        RESULT_FILES+=("$OUT_FILE")
+    done
 done
 
 COUNT=${#RESULT_FILES[@]}
