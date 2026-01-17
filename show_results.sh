@@ -24,7 +24,7 @@ echo -e "${BLUE}======================================================="
 echo "   DBot SMC Backtest (interaktiv)"
 echo -e "=======================================================${NC}"
 
-read -p "Symbole (z.B. BTC/USDT:USDT ETH/USDT:USDT): " SYMBOLS
+read -p "Symbole (z.B. BTC ETH SOL): " SYMBOLS_INPUT
 read -p "Timeframes (z.B. 1m 5m): " TIMEFRAMES
 read -p "Startdatum (YYYY-MM-DD): " START_DATE
 read -p "Enddatum (heute) [Enter = heute]: " END_DATE; END_DATE=${END_DATE:-$(date +%F)}
@@ -37,7 +37,14 @@ FEE=0.0005
 
 RESULT_FILES=()
 
-for SYM in $SYMBOLS; do
+for SYM_SHORT in $SYMBOLS_INPUT; do
+    # Auto-format: BTC -> BTC/USDT:USDT
+    if [[ "$SYM_SHORT" != *"/"* ]]; then
+        SYM="${SYM_SHORT}/USDT:USDT"
+    else
+        SYM="$SYM_SHORT"
+    fi
+    
     for TF in $TIMEFRAMES; do
         SAFE_NAME=$(echo "$SYM" | sed 's#[/:]#-#g')
         OUT_FILE="$EXPORT_DIR/${SAFE_NAME}_${TF}.csv"
