@@ -31,8 +31,8 @@ read -p "Enddatum (heute) [Enter = heute]: " END_DATE; END_DATE=${END_DATE:-$(da
 read -p "Startkapital [1000]: " START_CAPITAL; START_CAPITAL=${START_CAPITAL:-1000}
 
 # Fixe Werte (nicht mehr abgefragt)
-LEV=8
-RISK=0.12
+LEV=6
+RISK=0.05
 FEE=0.0005
 
 RESULT_FILES=()

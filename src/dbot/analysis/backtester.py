@@ -80,8 +80,8 @@ def simulate_smc_backtest(df, params):
     max_dd = 0.0
     fee_pct = params.get('fee_pct', 0.0005)
 
-    base_leverage = params.get('leverage', 8)
-    base_risk_per_trade = params.get('risk_per_trade', 0.12)
+    base_leverage = params.get('leverage', 6)
+    base_risk_per_trade = params.get('risk_per_trade', 0.05)
     atr_mult = params.get('atr_multiplier_sl', 1.0)
     min_sl_pct = params.get('min_sl_pct', 0.003)
     rr = params.get('risk_reward_ratio', 2.5)
@@ -90,13 +90,13 @@ def simulate_smc_backtest(df, params):
 
     # Dynamische Risiko-Settings (analog trade_manager)
     dynamic_enabled = params.get('dynamic_risk_enabled', True)
-    high_vol_threshold = params.get('high_vol_threshold', 1.5)
-    high_vol_leverage_scale = params.get('high_vol_leverage_scale', 0.6)
-    high_vol_risk_scale = params.get('high_vol_risk_scale', 0.7)
-    low_vol_threshold = params.get('low_vol_threshold', 0.8)
+    high_vol_threshold = params.get('high_vol_threshold', 1.4)
+    high_vol_leverage_scale = params.get('high_vol_leverage_scale', 0.5)
+    high_vol_risk_scale = params.get('high_vol_risk_scale', 0.6)
+    low_vol_threshold = params.get('low_vol_threshold', 0.9)
     low_vol_leverage_scale = params.get('low_vol_leverage_scale', 1.0)
-    low_vol_risk_scale = params.get('low_vol_risk_scale', 1.0)
-    min_risk_per_trade_pct = params.get('min_risk_per_trade_pct', 0.05)  # 5% Untergrenze falls skaliert
+    low_vol_risk_scale = params.get('low_vol_risk_scale', 0.9)
+    min_risk_per_trade_pct = params.get('min_risk_per_trade_pct', 0.03)  # 3% Untergrenze falls skaliert
 
     engine = SREngine(settings=params.get('strategy', {}))
 
