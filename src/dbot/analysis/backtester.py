@@ -35,12 +35,14 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
         if not api_setup:
             print("Fehler: Kein dbot Account in secret.json gefunden.")
             return pd.DataFrame()
-        exchange = Exchange(
-            api_setup.get('exchange', 'bitget'),
-            api_setup.get('api_key', ''),
-            api_setup.get('secret', ''),
-            api_setup.get('password', '')
-        )
+        
+        # Erstelle account_config dict für Exchange-Klasse
+        account_config = {
+            'apiKey': api_setup.get('apiKey') or api_setup.get('api_key', ''),
+            'secret': api_setup.get('secret', ''),
+            'password': api_setup.get('password', '')
+        }
+        exchange = Exchange(account_config)
         full_data = exchange.fetch_historical_ohlcv(symbol, timeframe, start_date_str, end_date_str)
         if not full_data.empty:
             full_data.to_csv(cache_file)
