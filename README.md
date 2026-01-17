@@ -212,6 +212,30 @@ Dies verhindert Trades gegen den Haupttrend.
 
 ---
 
+## 🔄 Updates
+
+### Update aktivieren (einmalig)
+
+```bash
+chmod +x update.sh
+```
+
+### Update ausführen
+
+```bash
+bash ./update.sh
+```
+
+Das Update-Skript:
+1. ✅ Sichert `secret.json` (API-Keys bleiben erhalten!)
+2. ✅ Holt den neuesten Code von GitHub
+3. ✅ Aktualisiert alle Dateien auf den neuesten Stand
+4. ✅ Stellt `secret.json` wieder her
+5. ✅ Löscht alten Python-Cache für sauberen Neustart
+6. ✅ Setzt Ausführungsrechte für alle Shell-Skripte
+
+---
+
 ## 🎮 Live-Trading
 
 ### Via Command Line
