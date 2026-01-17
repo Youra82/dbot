@@ -1,21 +1,27 @@
-# /root/utbot2/src/utbot2/analysis/backtester.py
+"""Backtester für die DBot Physics-Strategie.
+
+Vereinfacht aus der UtBot2-Variante abgeleitet, nutzt jedoch die
+PhysicsEngine und die physics-basierte Trade-Logik.
+"""
+
 import os
 import pandas as pd
 import numpy as np
 import json
 import sys
 from tqdm import tqdm
-import ta
 import math
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from utbot2.utils.exchange import Exchange
-from utbot2.strategy.ichimoku_engine import IchimokuEngine
-from utbot2.strategy.supertrend_engine import SupertrendEngine  # NEU: Supertrend für MTF
-from utbot2.strategy.trade_logic import get_titan_signal
-from utbot2.utils.timeframe_utils import determine_htf
+from dbot.utils.exchange import Exchange
+from dbot.strategy.physics_engine import PhysicsEngine
+from dbot.strategy.trade_logic import (
+    get_physics_signal,
+    get_stop_loss_take_profit,
+    should_close_position,
+)
 
 secrets_cache = None
 htf_cache = {}  # Cache für HTF-Daten um wiederholtes Laden zu vermeiden
@@ -50,12 +56,18 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
 
     try:
         if secrets_cache is None:
-            with open(os.path.join(PROJECT_ROOT, 'secret.json'), "r") as f: secrets_cache = json.load(f)
-        if 'utbot2' in secrets_cache:
+            with open(os.path.join(PROJECT_ROOT, 'secret.json'), "r") as f:
+                secrets_cache = json.load(f)
+
+        # Bevorzugt DBot-Account, fällt sonst auf andere zurück
+        if 'dbot' in secrets_cache:
+            api_setup = secrets_cache['dbot'][0]
+        elif 'utbot2' in secrets_cache:
             api_setup = secrets_cache['utbot2'][0]
         elif 'titanbot' in secrets_cache:
             api_setup = secrets_cache['titanbot'][0]
-        else: return pd.DataFrame()
+        else:
+            return pd.DataFrame()
         
         exchange = Exchange(api_setup)
         if not exchange.markets: return pd.DataFrame()
@@ -68,64 +80,42 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
             return full_data.loc[req_start_dt:req_end_dt]
         return pd.DataFrame()
     except Exception: return pd.DataFrame()
-
-
 def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose=False):
-    global htf_cache
-    
-    if data.empty or len(data) < 52:
-        return {"total_pnl_pct": -100, "trades_count": 0, "win_rate": 0, "max_drawdown_pct": 1.0, "end_capital": start_capital}
+    """Backtest für die Physics-Strategie.
+
+    Nutzt PhysicsEngine + get_physics_signal + ATR-basiertes Risiko-Management
+    (ähnlich wie im Live-Trade-Manager, aber auf vereinfachter Basis).
+    """
+
+    if data.empty or len(data) < 60:
+        return {
+            "total_pnl_pct": -100,
+            "trades_count": 0,
+            "win_rate": 0,
+            "max_drawdown_pct": 1.0,
+            "end_capital": start_capital,
+        }
 
     symbol = strategy_params.get('symbol', '')
     timeframe = strategy_params.get('timeframe', '')
-    htf = strategy_params.get('htf')
 
-    # --- HTF Daten laden und Supertrend berechnen für MTF-Filter ---
-    htf_processed = None
-    if htf and htf != timeframe:
-        # Cache-Key für rohe HTF-Daten (ohne Supertrend-Params, da die OHLCV gleich bleiben)
-        raw_cache_key = f"{symbol}_{htf}_{data.index.min().strftime('%Y%m%d')}_{data.index.max().strftime('%Y%m%d')}_raw"
-        
-        # Supertrend-Settings
-        st_atr = strategy_params.get('supertrend_atr_period', 10)
-        st_mult = strategy_params.get('supertrend_multiplier', 3.0)
-        
-        # Cache-Key für verarbeitete Daten (inkl. Supertrend-Params)
-        processed_cache_key = f"{raw_cache_key}_{st_atr}_{st_mult}"
-        
-        if processed_cache_key in htf_cache:
-            # Verarbeitete HTF-Daten aus Cache nutzen
-            htf_processed = htf_cache[processed_cache_key]
-        else:
-            # Rohe HTF-Daten aus Cache oder laden
-            if raw_cache_key in htf_cache:
-                htf_data = htf_cache[raw_cache_key]
-            else:
-                htf_data = load_data(symbol, htf, data.index.min().strftime('%Y-%m-%d'), data.index.max().strftime('%Y-%m-%d'))
-                if not htf_data.empty:
-                    htf_cache[raw_cache_key] = htf_data.copy()
-            
-            if htf_data is not None and not htf_data.empty:
-                supertrend_settings = {
-                    'supertrend_atr_period': st_atr,
-                    'supertrend_multiplier': st_mult
-                }
-                htf_engine = SupertrendEngine(settings=supertrend_settings)
-                htf_processed = htf_engine.process_dataframe(htf_data.copy())
-                # Verarbeitete Daten in Cache speichern
-                htf_cache[processed_cache_key] = htf_processed
-
-    # --- ATR Berechnung ---
-    try:
-        atr_indicator = ta.volatility.AverageTrueRange(high=data['high'], low=data['low'], close=data['close'], window=14)
-        data['atr'] = atr_indicator.average_true_range()
-        data.dropna(subset=['atr'], inplace=True)
-    except Exception:
-        return {"total_pnl_pct": -100, "end_capital": start_capital}
-
-    # --- Ichimoku Engine ---
-    engine = IchimokuEngine(settings=strategy_params)
+    # Physics-Indikatoren berechnen
+    engine = PhysicsEngine(settings=strategy_params)
     processed_data = engine.process_dataframe(data)
+
+    # Setup-Flags ergänzen
+    processed_data['impulse_pullback_setup'] = engine.detect_impulse_pullback(processed_data)
+    processed_data['volatility_expansion_setup'] = engine.detect_volatility_expansion(processed_data)
+
+    processed_data.dropna(subset=['atr'], inplace=True)
+    if processed_data.empty:
+        return {
+            "total_pnl_pct": -100,
+            "trades_count": 0,
+            "win_rate": 0,
+            "max_drawdown_pct": 1.0,
+            "end_capital": start_capital,
+        }
 
     current_capital = start_capital
     peak_capital = start_capital
@@ -134,53 +124,70 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
     wins_count = 0
     position = None
 
-    # Parameter-Extraction
+    # Risiko-Parameter
     risk_reward_ratio = risk_params.get('risk_reward_ratio', 2.0)
-    risk_per_trade_pct = risk_params.get('risk_per_trade_pct', 1.0) / 100
+    risk_per_trade_pct = risk_params.get('risk_per_trade_pct', 1.0) / 100.0
     activation_rr = risk_params.get('trailing_stop_activation_rr', 2.0)
-    callback_rate = risk_params.get('trailing_stop_callback_rate_pct', 1.0) / 100
-    leverage = risk_params.get('leverage', 10)
-    fee_pct = 0.05 / 100
-    atr_multiplier_sl = risk_params.get('atr_multiplier_sl', 2.0)
-    min_sl_pct = risk_params.get('min_sl_pct', 0.5) / 100.0
-    
-    absolute_max_notional_value = 1000000
+    callback_rate = risk_params.get('trailing_stop_callback_rate_pct', 1.0) / 100.0
+    leverage = risk_params.get('leverage', 5)
+    fee_pct = 0.05 / 100.0
+
+    absolute_max_notional_value = 1_000_000
     max_allowed_effective_leverage = 10
 
     params_for_logic = {"strategy": strategy_params, "risk": risk_params}
 
-    iterator = processed_data.iterrows()
-
-    for timestamp, current_candle in iterator:
-        if current_capital <= 0: break
+    for timestamp, current_candle in processed_data.iterrows():
+        if current_capital <= 0:
+            break
 
         # --- Positions-Management ---
-        if position:
+        if position is not None:
             exit_price = None
+
+            # Trailing / SL / TP
             if position['side'] == 'long':
-                if not position['trailing_active'] and current_candle['high'] >= position['activation_price']: position['trailing_active'] = True
+                if not position['trailing_active'] and current_candle['high'] >= position['activation_price']:
+                    position['trailing_active'] = True
                 if position['trailing_active']:
                     position['peak_price'] = max(position['peak_price'], current_candle['high'])
                     trailing_sl = position['peak_price'] * (1 - callback_rate)
                     position['stop_loss'] = max(position['stop_loss'], trailing_sl)
-                if current_candle['low'] <= position['stop_loss']: exit_price = position['stop_loss']
-                elif not position['trailing_active'] and current_candle['high'] >= position['take_profit']: exit_price = position['take_profit']
-            elif position['side'] == 'short':
-                if not position['trailing_active'] and current_candle['low'] <= position['activation_price']: position['trailing_active'] = True
+                if current_candle['low'] <= position['stop_loss']:
+                    exit_price = position['stop_loss']
+                elif not position['trailing_active'] and current_candle['high'] >= position['take_profit']:
+                    exit_price = position['take_profit']
+            else:  # short
+                if not position['trailing_active'] and current_candle['low'] <= position['activation_price']:
+                    position['trailing_active'] = True
                 if position['trailing_active']:
                     position['peak_price'] = min(position['peak_price'], current_candle['low'])
                     trailing_sl = position['peak_price'] * (1 + callback_rate)
                     position['stop_loss'] = min(position['stop_loss'], trailing_sl)
-                if current_candle['high'] >= position['stop_loss']: exit_price = position['stop_loss']
-                elif not position['trailing_active'] and current_candle['low'] <= position['take_profit']: exit_price = position['take_profit']
+                if current_candle['high'] >= position['stop_loss']:
+                    exit_price = position['stop_loss']
+                elif not position['trailing_active'] and current_candle['low'] <= position['take_profit']:
+                    exit_price = position['take_profit']
 
-            if exit_price:
-                pnl_pct = (exit_price / position['entry_price'] - 1) if position['side'] == 'long' else (1 - exit_price / position['entry_price'])
+            # Zusätzliche Exit-Logik aus Physics-Strategie
+            if exit_price is None:
+                data_slice = processed_data.loc[:timestamp]
+                pos_side_label = 'buy' if position['side'] == 'long' else 'sell'
+                if should_close_position(data_slice, pos_side_label, position['entry_price'], params_for_logic):
+                    exit_price = current_candle['close']
+
+            if exit_price is not None:
+                pnl_pct = (
+                    exit_price / position['entry_price'] - 1
+                    if position['side'] == 'long'
+                    else 1 - exit_price / position['entry_price']
+                )
                 notional_value = position['notional_value']
                 pnl_usd = notional_value * pnl_pct
                 total_fees = notional_value * fee_pct * 2
                 current_capital += (pnl_usd - total_fees)
-                if (pnl_usd - total_fees) > 0: wins_count += 1
+                if (pnl_usd - total_fees) > 0:
+                    wins_count += 1
                 trades_count += 1
                 position = None
                 peak_capital = max(peak_capital, current_capital)
@@ -189,70 +196,70 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
                     max_drawdown_pct = max(max_drawdown_pct, drawdown)
 
         # --- Einstiegs-Logik ---
-        if not position and current_capital > 0:
-            
-            # Dynamischer MTF-Bias Check via Supertrend pro Kerze
-            market_bias = Bias.NEUTRAL
-            if htf_processed is not None:
-                # Suche den letzten verfügbaren HTF-Index vor oder gleich dem aktuellen Timestamp
-                try:
-                    htf_idx = htf_processed.index.asof(timestamp)
-                    if pd.notna(htf_idx):
-                        htf_row = htf_processed.loc[htf_idx]
-                        # Bias basierend auf Supertrend-Direction bestimmen
-                        supertrend_dir = htf_row.get('supertrend_direction', 0)
-                        if supertrend_dir == 1:  # Bullish
-                            market_bias = Bias.BULLISH
-                        elif supertrend_dir == -1:  # Bearish
-                            market_bias = Bias.BEARISH
-                except:
-                    pass  # Bei Fehler neutral bleiben
-
+        if position is None and current_capital > 0:
             data_slice = processed_data.loc[:timestamp]
-            side, price = get_titan_signal(data_slice, current_candle, params_for_logic, market_bias)
+            market_bias = Bias.NEUTRAL  # Für den Backtest ohne HTF-Bias
+            side, signal_price = get_physics_signal(data_slice, current_candle, params_for_logic, market_bias)
 
             if side:
                 entry_price = current_candle['close']
                 current_atr = current_candle.get('atr', 0)
-                if current_atr <= 0: continue
-                
-                sl_dist = max(current_atr * atr_multiplier_sl, entry_price * min_sl_pct)
-                
+                if current_atr <= 0:
+                    continue
+
+                # SL/TP aus Physics-Logik berechnen
+                sl_price, tp_price = get_stop_loss_take_profit(data_slice, side, entry_price, params_for_logic)
+                if sl_price is None or tp_price is None:
+                    continue
+
+                sl_dist = abs(entry_price - sl_price)
+                if sl_dist <= 0:
+                    continue
+
                 risk_amount_usd = current_capital * risk_per_trade_pct
                 sl_pct = sl_dist / entry_price
-                if sl_pct <= 0: continue
-                
+                if sl_pct <= 0:
+                    continue
+
                 calc_notional = risk_amount_usd / sl_pct
                 max_notional = current_capital * max_allowed_effective_leverage
                 final_notional = min(calc_notional, max_notional, absolute_max_notional_value)
-                
+
                 margin_needed = final_notional / leverage
-                if margin_needed > current_capital: continue
+                if margin_needed > current_capital or final_notional <= 0:
+                    continue
 
                 if side == 'buy':
-                    sl = entry_price - sl_dist
-                    tp = entry_price + sl_dist * risk_reward_ratio
                     act = entry_price + sl_dist * activation_rr
+                    pos_side = 'long'
                 else:
-                    sl = entry_price + sl_dist
-                    tp = entry_price - sl_dist * risk_reward_ratio
                     act = entry_price - sl_dist * activation_rr
+                    pos_side = 'short'
 
                 position = {
-                    'side': 'long' if side == 'buy' else 'short',
-                    'entry_price': entry_price, 'stop_loss': sl,
-                    'take_profit': tp, 'margin_used': margin_needed,
+                    'side': pos_side,
+                    'entry_price': entry_price,
+                    'stop_loss': sl_price,
+                    'take_profit': tp_price,
+                    'margin_used': margin_needed,
                     'notional_value': final_notional,
-                    'trailing_active': False, 'activation_price': act,
-                    'peak_price': entry_price
+                    'trailing_active': False,
+                    'activation_price': act,
+                    'peak_price': entry_price,
                 }
 
     win_rate = (wins_count / trades_count * 100) if trades_count > 0 else 0
-    final_pnl_pct = ((current_capital - start_capital) / start_capital) * 100 if start_capital > 0 else 0
+    final_pnl_pct = (
+        (current_capital - start_capital) / start_capital * 100
+        if start_capital > 0
+        else 0
+    )
     final_capital = max(0, current_capital)
 
     return {
-        "total_pnl_pct": final_pnl_pct, "trades_count": trades_count,
-        "win_rate": win_rate, "max_drawdown_pct": max_drawdown_pct,
-        "end_capital": final_capital
+        "total_pnl_pct": final_pnl_pct,
+        "trades_count": trades_count,
+        "win_rate": win_rate,
+        "max_drawdown_pct": max_drawdown_pct,
+        "end_capital": final_capital,
     }

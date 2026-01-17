@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""
-Interactive Charts für UtBot2 - Ichimoku Cloud Strategie
-Zeigt Candlestick-Chart mit Ichimoku Indikatoren + Trade-Signale (Entry/Exit Long/Short)
-Nutzt durchnummerierte Konfigurationsdateien zum Auswählen
-Basiert auf ltbbot interactive_status.py, mit Ichimoku-Integration und Backtest-Simulation
+"""Interactive Charts für DBot Physics.
+
+Zeigt Candlestick-Chart mit Physics-induzierten Entry/Exit-Signalen und
+optional wichtigen Indikatoren (z.B. VWAP, EMAs). Nutzt durchnummerierte
+Konfigurationsdateien unter src/dbot/strategy/configs.
 """
 
 import os
@@ -19,9 +19,14 @@ from plotly.subplots import make_subplots
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from utbot2.utils.exchange import Exchange
-from utbot2.strategy.ichimoku_engine import IchimokuEngine
-from utbot2.analysis.backtester import run_backtest
+from dbot.utils.exchange import Exchange
+from dbot.strategy.physics_engine import PhysicsEngine
+from dbot.strategy.trade_logic import (
+    get_physics_signal,
+    get_stop_loss_take_profit,
+    should_close_position,
+)
+from dbot.analysis.backtester import run_backtest
 
 def setup_logging():
     logger = logging.getLogger('interactive_status')
@@ -36,7 +41,7 @@ logger = setup_logging()
 
 def get_config_files():
     """Sucht alle Konfigurationsdateien auf"""
-    configs_dir = os.path.join(PROJECT_ROOT, 'src', 'utbot2', 'strategy', 'configs')
+    configs_dir = os.path.join(PROJECT_ROOT, 'src', 'dbot', 'strategy', 'configs')
     if not os.path.exists(configs_dir):
         return []
     
@@ -102,7 +107,7 @@ def run_backtest_for_chart(df, config, start_capital=1000):
         risk_params = config.get('risk', {})
         
         # Backtester ausführen (mit weniger Output)
-        logger_backtest = logging.getLogger('utbot2.analysis.backtester')
+        logger_backtest = logging.getLogger('dbot.analysis.backtester')
         original_level = logger_backtest.level
         logger_backtest.setLevel(logging.ERROR)
         
@@ -177,76 +182,87 @@ def build_equity_curve(df, trades, start_capital):
     return equity_df
 
 def extract_trades_from_backtest(df, config, start_capital=1000):
-    """
-    Extrahiert Trade-Signale aus dem Ichimoku-Chart für die Visualisierung
-    Liefert Entry/Exit Punkte für Long und Short Positionen
+    """Extrahiert Physics-Trade-Signale für die Visualisierung.
+
+    Nutzt PhysicsEngine + get_physics_signal/should_close_position, um
+    vereinfachte Entry/Exit-Punkte für Long/Short zu finden.
     """
     trades = []
     try:
-        engine = IchimokuEngine(config.get('strategy', {}))
-        df = engine.process_dataframe(df.copy())
-        
+        strategy_params = config.get('strategy', {})
+        risk_params = config.get('risk', {})
+
+        engine = PhysicsEngine(strategy_params)
+        df_proc = engine.process_dataframe(df.copy())
+        df_proc['impulse_pullback_setup'] = engine.detect_impulse_pullback(df_proc)
+        df_proc['volatility_expansion_setup'] = engine.detect_volatility_expansion(df_proc)
+
         in_position = False
-        position_type = None
+        position_type = None  # 'long' oder 'short'
         entry_price = None
         entry_time = None
-        
-        for i in range(len(df)):
-            row = df.iloc[i]
-            timestamp = row.name
-            
-            # Vereinfachte Signallogik basierend auf Ichimoku
-            # Entry: Wenn Tenkan über Kijun und Preis über Kumo
-            tenkan = row.get('tenkan_sen')
-            kijun = row.get('kijun_sen')
-            senkou_a = row.get('senkou_span_a')
-            senkou_b = row.get('senkou_span_b')
-            close = row['close']
-            
-            if pd.isna(tenkan) or pd.isna(kijun):
-                continue
-            
-            # Signaldetection
-            bullish_signal = (tenkan > kijun) and (close > max(senkou_a, senkou_b) if not pd.isna(senkou_a) and not pd.isna(senkou_b) else True)
-            bearish_signal = (tenkan < kijun) and (close < min(senkou_a, senkou_b) if not pd.isna(senkou_a) and not pd.isna(senkou_b) else True)
-            
-            # State machine für Positionen
+
+        params_for_logic = {"strategy": strategy_params, "risk": risk_params}
+
+        for timestamp, row in df_proc.iterrows():
+            data_slice = df_proc.loc[:timestamp]
+            side, _ = get_physics_signal(data_slice, row, params_for_logic, market_bias=None)
+
             if not in_position:
-                if bullish_signal:
+                if side == 'buy':
                     in_position = True
                     position_type = 'long'
-                    entry_price = close
+                    entry_price = row['close']
                     entry_time = timestamp
-                elif bearish_signal:
+                elif side == 'sell':
                     in_position = True
                     position_type = 'short'
-                    entry_price = close
+                    entry_price = row['close']
                     entry_time = timestamp
             else:
-                # Exit-Bedingungen
+                # Exit-Bedingungen: Gegensignal oder should_close_position
                 should_exit = False
-                if position_type == 'long' and bearish_signal:
-                    should_exit = True
-                elif position_type == 'short' and bullish_signal:
-                    should_exit = True
-                
+                if position_type == 'long':
+                    if side == 'sell':
+                        should_exit = True
+                    elif should_close_position(data_slice, 'buy', entry_price, params_for_logic):
+                        should_exit = True
+                elif position_type == 'short':
+                    if side == 'buy':
+                        should_exit = True
+                    elif should_close_position(data_slice, 'sell', entry_price, params_for_logic):
+                        should_exit = True
+
                 if should_exit:
-                    trade = {
-                        'entry_' + position_type: {
-                            'time': entry_time.isoformat() if pd.notna(entry_time) else None,
-                            'price': float(entry_price)
-                        },
-                        'exit_' + position_type: {
-                            'time': timestamp.isoformat() if pd.notna(timestamp) else None,
-                            'price': float(close)
+                    close_price = row['close']
+                    if position_type == 'long':
+                        trade = {
+                            'entry_long': {
+                                'time': entry_time.isoformat() if pd.notna(entry_time) else None,
+                                'price': float(entry_price),
+                            },
+                            'exit_long': {
+                                'time': timestamp.isoformat() if pd.notna(timestamp) else None,
+                                'price': float(close_price),
+                            },
                         }
-                    }
+                    else:
+                        trade = {
+                            'entry_short': {
+                                'time': entry_time.isoformat() if pd.notna(entry_time) else None,
+                                'price': float(entry_price),
+                            },
+                            'exit_short': {
+                                'time': timestamp.isoformat() if pd.notna(timestamp) else None,
+                                'price': float(close_price),
+                            },
+                        }
                     trades.append(trade)
                     in_position = False
                     position_type = None
                     entry_price = None
                     entry_time = None
-        
+
         return trades
     except Exception as e:
         logger = logging.getLogger('interactive_status')
@@ -260,8 +276,8 @@ def create_interactive_chart(symbol, timeframe, df, trades, equity_df, stats, st
     - Ein einzelner Chart (kein make_subplots mit 2 Reihen)
     - Rangeslider für einfaches Zoomen
     - Kontostand auf zweiter Y-Achse (rechts) überlagert
-    - Statistiken im Titel (wie im Screenshot)
-    - Ichimoku Cloud Indikatoren
+    - Statistiken im Titel
+    - Wichtige Physics-Indikatoren (z.B. EMA, VWAP)
     """
     
     # Filter auf Fenster
@@ -302,37 +318,42 @@ def create_interactive_chart(symbol, timeframe, df, trades, equity_df, stats, st
         secondary_y=False
     )
     
-    # ===== ICHIMOKU CLOUD INDIKATOREN =====
-    if 'tenkan_sen' in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['tenkan_sen'], name='Tenkan-sen',
-            line=dict(color='red', width=2), showlegend=True
-        ), secondary_y=False)
-    
-    if 'kijun_sen' in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['kijun_sen'], name='Kijun-sen',
-            line=dict(color='blue', width=2), showlegend=True
-        ), secondary_y=False)
-    
-    if 'senkou_span_a' in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['senkou_span_a'], name='Senkou Span A',
-            line=dict(color='green', width=1, dash='dash'), showlegend=True
-        ), secondary_y=False)
-    
-    if 'senkou_span_b' in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['senkou_span_b'], name='Senkou Span B',
-            line=dict(color='orange', width=1, dash='dash'),
-            fill='tonexty', fillcolor='rgba(0,200,0,0.2)', showlegend=True
-        ), secondary_y=False)
-    
-    if 'chikou_span' in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df.index, y=df['chikou_span'], name='Chikou Span',
-            line=dict(color='purple', width=1, dash='dot'), showlegend=True
-        ), secondary_y=False)
+    # ===== PHYSICS-INDIKATOREN (VWAP / EMAs) =====
+    if 'vwap' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df['vwap'],
+                name='VWAP',
+                line=dict(color='#0ea5e9', width=1.6, dash='dot'),
+                showlegend=True,
+            ),
+            secondary_y=False,
+        )
+
+    if 'ema_fast' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df['ema_fast'],
+                name='EMA fast',
+                line=dict(color='#f97316', width=1.4),
+                showlegend=True,
+            ),
+            secondary_y=False,
+        )
+
+    if 'ema_slow' in df.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=df.index,
+                y=df['ema_slow'],
+                name='EMA slow',
+                line=dict(color='#4b5563', width=1.4, dash='dash'),
+                showlegend=True,
+            ),
+            secondary_y=False,
+        )
     
     # ===== TRADE-SIGNALE =====
     entry_long_x, entry_long_y = [], []
@@ -400,10 +421,10 @@ def create_interactive_chart(symbol, timeframe, df, trades, equity_df, stats, st
             secondary_y=True
         )
     
-    # ===== LAYOUT (genau wie ltbbot Screenshot) =====
-    # Stats im Titel anzeigen wie im ltbbot Screenshot
+    # ===== LAYOUT =====
+    # Stats im Titel anzeigen
     title_text = (
-        f"{symbol} {timeframe} - UtBot2 | "
+        f"{symbol} {timeframe} - DBot Physics | "
         f"Start Capital: ${start_capital:.2f} | "
         f"End Capital: ${end_capital:.2f} | "
         f"PnL: {pnl_sign}{pnl_pct:.2f}% | "
@@ -457,9 +478,9 @@ def main():
         logger.error(f"Fehler beim Laden von secret.json: {e}")
         sys.exit(1)
     
-    account = secrets.get('utbot2', [None])[0]
+    account = secrets.get('dbot', [None])[0]
     if not account:
-        logger.error("Keine UtBot2-Accountkonfiguration gefunden")
+        logger.error("Keine DBot-Accountkonfiguration gefunden")
         sys.exit(1)
     
     exchange = Exchange(account)
@@ -493,10 +514,14 @@ def main():
                 logger.warning(f"Keine Daten für {symbol} {timeframe}")
                 continue
             
-            # Ichimoku Indikatoren berechnen
-            logger.info("Berechne Ichimoku-Indikatoren...")
-            ichimoku_engine = IchimokuEngine(config.get('strategy', {}))
-            df = ichimoku_engine.process_dataframe(df)
+            # Physics-Indikatoren berechnen
+            logger.info("Berechne Physics-Indikatoren...")
+            engine = PhysicsEngine(config.get('strategy', {}))
+            df = engine.process_dataframe(df)
+
+            # Setup-Flags für die Physics-Strategie
+            df['impulse_pullback_setup'] = engine.detect_impulse_pullback(df)
+            df['volatility_expansion_setup'] = engine.detect_volatility_expansion(df)
             
             # Backtest-Simulation durchführen
             logger.info("Führe Backtest-Simulation durch...")
@@ -518,7 +543,7 @@ def main():
             )
             
             safe_name = f"{symbol.replace('/', '_')}_{timeframe}"
-            output_file = f"/tmp/utbot2_{safe_name}.html"
+            output_file = f"/tmp/dbot_{safe_name}.html"
             fig.write_html(output_file)
             logger.info(f"✅ Chart gespeichert: {output_file}")
             
@@ -526,7 +551,7 @@ def main():
             if send_telegram and telegram_config:
                 try:
                     logger.info("Sende Chart via Telegram...")
-                    from utbot2.utils.telegram import send_document
+                    from dbot.utils.telegram import send_document
                     bot_token = telegram_config.get('bot_token')
                     chat_id = telegram_config.get('chat_id')
                     if bot_token and chat_id:

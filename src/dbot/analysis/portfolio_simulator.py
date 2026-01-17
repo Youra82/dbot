@@ -1,21 +1,23 @@
-# /root/utbot2/src/utbot2/analysis/portfolio_simulator.py
+"""Portfolio-Simulation für DBot Physics.
+
+Simuliert mehrere Physics-Strategien gleichzeitig auf einem gemeinsamen
+Equity-Konto (ähnlich der UtBot2-Variante, aber mit PhysicsEngine).
+"""
+
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
 import sys
 import os
-import ta
 import math
 import json
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-# Imports auf Ichimoku angepasst
-from utbot2.strategy.ichimoku_engine import IchimokuEngine
-from utbot2.strategy.trade_logic import get_titan_signal
-from utbot2.analysis.backtester import load_data
-from utbot2.utils.timeframe_utils import determine_htf
+from dbot.strategy.physics_engine import PhysicsEngine
+from dbot.strategy.trade_logic import get_physics_signal, get_stop_loss_take_profit
+from dbot.analysis.backtester import load_data
 
 # Hilfsklasse für Bias (da wir kein zentrales Enum mehr haben)
 class Bias:
@@ -24,13 +26,11 @@ class Bias:
     NEUTRAL = "NEUTRAL"
 
 def run_portfolio_simulation(start_capital, strategies_data, start_date, end_date):
-    """
-    Führt eine chronologische Portfolio-Simulation mit mehreren Ichimoku-Strategien durch.
-    """
-    print("\n--- Starte Portfolio-Simulation (Ichimoku)... ---")
+    """Chronologische Portfolio-Simulation für mehrere Physics-Strategien."""
+    print("\n--- Starte Portfolio-Simulation (DBot Physics)... ---")
 
-    # --- 1. Datenvorbereitung (Indikatoren & Ichimoku berechnen) ---
-    print("1/3: Bereite Strategie-Daten vor (Indikatoren & Clouds)...")
+    # --- 1. Datenvorbereitung (Indikatoren berechnen) ---
+    print("1/3: Bereite Strategie-Daten vor (Physics-Indikatoren)...")
     
     processed_strategies = {}
     all_timestamps = set()
@@ -39,47 +39,24 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
     for key, strat in tqdm(strategies_data.items(), desc="Verarbeite Strategien"):
         try:
             df = strat['data'].copy()
-            if df.empty or len(df) < 50: continue
-            
-            params = strat.get('smc_params', {}) # Heißt oft noch so, enthält aber Ichimoku-Werte
-            
-            # 1a. ATR berechnen (für SL)
-            atr_indicator = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14)
-            df['atr'] = atr_indicator.average_true_range()
-            
-            # 1b. Ichimoku berechnen
-            engine = IchimokuEngine(settings=params)
+            if df.empty or len(df) < 60:
+                continue
+
+            params = strat.get('smc_params', {})  # enthält Physics-Settings
+
+            # Physics-Indikatoren inkl. ATR berechnen
+            engine = PhysicsEngine(settings=params)
             df = engine.process_dataframe(df)
-            
-            # NaN Werte am Anfang entfernen
-            df.dropna(subset=['atr', 'tenkan_sen', 'senkou_span_b'], inplace=True)
+
+            df.dropna(subset=['atr'], inplace=True)
             
             if df.empty: continue
-            
-            # 1c. MTF Bias bestimmen (Global für den Zeitraum vereinfacht)
-            # In einer perfekten Simulation müssten wir das pro Kerze tun, 
-            # aber für Portfolio-Sims reicht oft der globale Bias des Zeitraums oder wir prüfen es live (teuer).
-            # Wir machen hier eine Annäherung: Wir laden die HTF Daten und berechnen den Bias pro Kerze "live" im Loop wäre zu langsam.
-            # Wir speichern den HTF DataFrame vorbereitet ab.
-            htf = strat.get('htf') or determine_htf(strat['timeframe'])
-            symbol = strat['symbol']
-            
-            htf_bias_lookup = None
-            if htf and htf != strat['timeframe']:
-                htf_data = load_data(symbol, htf, start_date, end_date)
-                if not htf_data.empty:
-                    htf_engine = IchimokuEngine(settings={})
-                    htf_df = htf_engine.process_dataframe(htf_data)
-                    # Wir machen ein einfaches Reindexing, damit wir im Loop schnell zugreifen können
-                    # Das ist komplex bei unterschiedlichen TFs. 
-                    # Vereinfachung: Wir nutzen den Bias der letzten HTF Kerze VOR dem aktuellen TS.
-                    htf_bias_lookup = htf_df
             
             processed_strategies[key] = {
                 'data': df,
                 'params': params,
                 'risk_params': strat.get('risk_params', {}),
-                'htf_data': htf_bias_lookup
+                'htf_data': None,
             }
             
             all_timestamps.update(df.index)
@@ -181,52 +158,37 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
                 if ts not in strat['data'].index: continue
 
                 current_candle = strat['data'].loc[ts]
-                
-                # MTF Bias bestimmen (Lookup)
-                market_bias = Bias.NEUTRAL
-                if strat['htf_data'] is not None:
-                    # Finde letzte Kerze im HTF vor dem aktuellen TS
-                    # Da Simulation langsam wäre mit 'asof', vereinfachen wir:
-                    # Wir nehmen an, der Bias ändert sich selten.
-                    # Korrekte Simulation:
-                    try:
-                        # Wir suchen den Index im HTF, der kleiner/gleich ts ist
-                        # Das ist teuer in Python Loop. 
-                        # Optimierung: Wir nehmen Bias.NEUTRAL oder implementieren 'asof' effizient.
-                        # Hier nutzen wir Pandas asof (kann langsam sein, aber korrekt)
-                        htf_idx = strat['htf_data'].index.asof(ts)
-                        if pd.notna(htf_idx):
-                            htf_row = strat['htf_data'].loc[htf_idx]
-                            if htf_row['close'] > max(htf_row['senkou_span_a'], htf_row['senkou_span_b']):
-                                market_bias = Bias.BULLISH
-                            elif htf_row['close'] < min(htf_row['senkou_span_a'], htf_row['senkou_span_b']):
-                                market_bias = Bias.BEARISH
-                    except: pass
 
-                # Signal abrufen (WICHTIG: Hier wird jetzt ein DataFrame Slice übergeben)
-                # Wir übergeben die Daten bis zum aktuellen Zeitpunkt
+                # Kein aufwendiger HTF-Bias in der Portfolio-Sim
+                market_bias = Bias.NEUTRAL
+
+                # Signal abrufen: Physics-Strategie
                 data_slice = strat['data'].loc[:ts]
-                
+
                 params_for_logic = {"strategy": strat['params'], "risk": strat['risk_params']}
-                side, price = get_titan_signal(data_slice, current_candle, params_for_logic, market_bias)
+                side, _ = get_physics_signal(data_slice, current_candle, params_for_logic, market_bias)
 
                 if side:
                     risk_params = strat['risk_params']
                     entry_price = current_candle['close']
                     current_atr = current_candle['atr']
-                    
-                    atr_mult = risk_params.get('atr_multiplier_sl', 2.0)
-                    min_sl = risk_params.get('min_sl_pct', 0.5) / 100.0
-                    sl_dist = max(current_atr * atr_mult, entry_price * min_sl)
-                    
-                    if sl_dist <= 0: continue
+
+                    # SL/TP über Physics-Logik
+                    sl_price, tp_price = get_stop_loss_take_profit(data_slice, side, entry_price, params_for_logic)
+                    if sl_price is None or tp_price is None:
+                        continue
+
+                    sl_dist = abs(entry_price - sl_price)
+                    if sl_dist <= 0:
+                        continue
 
                     risk_per_trade = risk_params.get('risk_per_trade_pct', 1.0) / 100.0
                     risk_usd = equity * risk_per_trade
-                    
+
                     sl_pct = sl_dist / entry_price
-                    if sl_pct <= 0: continue
-                    
+                    if sl_pct <= 0:
+                        continue
+
                     calc_notional = risk_usd / sl_pct
                     leverage = risk_params.get('leverage', 10)
                     
@@ -243,14 +205,12 @@ def run_portfolio_simulation(start_capital, strategies_data, start_date, end_dat
                     # Setup
                     rr = risk_params.get('risk_reward_ratio', 2.0)
                     act_rr = risk_params.get('trailing_stop_activation_rr', 2.0)
-                    
+
+                    sl = sl_price
+                    tp = tp_price
                     if side == 'buy':
-                        sl = entry_price - sl_dist
-                        tp = entry_price + sl_dist * rr
                         act = entry_price + sl_dist * act_rr
                     else:
-                        sl = entry_price + sl_dist
-                        tp = entry_price - sl_dist * rr
                         act = entry_price - sl_dist * act_rr
                         
                     open_positions[key] = {

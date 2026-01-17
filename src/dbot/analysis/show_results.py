@@ -1,4 +1,10 @@
-# /root/utbot2/src/utbot2/analysis/show_results.py
+"""Ergebnis-Analyse für DBot Physics.
+
+Stellt dieselben Modi wie bei UtBot2 bereit, arbeitet aber mit den
+DBot-Physics-Configs unter src/dbot/strategy/configs und der
+Physics-Backtest-Pipeline.
+"""
+
 import os
 import sys
 import json
@@ -15,16 +21,15 @@ warnings.filterwarnings('ignore', category=UserWarning, module='keras')
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-# KORREKTUR: Import run_backtest statt run_smc_backtest
-from utbot2.analysis.backtester import load_data, run_backtest
-from utbot2.analysis.portfolio_simulator import run_portfolio_simulation
-from utbot2.analysis.portfolio_optimizer import run_portfolio_optimizer
-from utbot2.utils.telegram import send_document
+from dbot.analysis.backtester import load_data, run_backtest
+from dbot.analysis.portfolio_simulator import run_portfolio_simulation
+from dbot.analysis.portfolio_optimizer import run_portfolio_optimizer
+from dbot.utils.telegram import send_document
 
 # --- Einzel-Analyse ---
 def run_single_analysis(start_date, end_date, start_capital):
-    print("--- UtBot2 Ergebnis-Analyse (Einzel-Modus) ---")
-    configs_dir = os.path.join(PROJECT_ROOT, 'src', 'utbot2', 'strategy', 'configs')
+    print("--- DBot Physics Ergebnis-Analyse (Einzel-Modus) ---")
+    configs_dir = os.path.join(PROJECT_ROOT, 'src', 'dbot', 'strategy', 'configs')
     all_results = []
     
     if not os.path.exists(configs_dir):
@@ -93,11 +98,11 @@ def run_single_analysis(start_date, end_date, start_capital):
 # --- Geteilter Modus (Manuell / Auto) ---
 def run_shared_mode(is_auto: bool, start_date, end_date, start_capital, target_max_dd: float):
     mode_name = "Automatische Portfolio-Optimierung" if is_auto else "Manuelle Portfolio-Simulation"
-    print(f"--- UtBot2 {mode_name} ---")
+    print(f"--- DBot {mode_name} (Physics) ---")
     if is_auto:
         print(f"Ziel: Maximaler Profit bei maximal {target_max_dd:.2f}% Drawdown.")
 
-    configs_dir = os.path.join(PROJECT_ROOT, 'src', 'utbot2', 'strategy', 'configs')
+    configs_dir = os.path.join(PROJECT_ROOT, 'src', 'dbot', 'strategy', 'configs')
     available_strategies = []
     if os.path.isdir(configs_dir):
         for filename in sorted(os.listdir(configs_dir)):
@@ -238,22 +243,17 @@ def run_shared_mode(is_auto: bool, start_date, end_date, start_capital, target_m
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="UtBot2 Backtest Ergebnis-Analyse")
+    parser = argparse.ArgumentParser(description="DBot Physics Backtest Ergebnis-Analyse")
     parser.add_argument('--mode', default='1', type=str, choices=['1', '2', '3', '4'],
                         help="Analysemodus: 1=Einzel, 2=Manuell Portfolio, 3=Auto Portfolio, 4=Interaktive Charts")
     parser.add_argument('--target_max_drawdown', default=30.0, type=float, help="Ziel Max Drawdown % (nur für Modus 3)")
     args = parser.parse_args()
 
-    # Mode 4 (Interaktive Charts) hat eigenes Input-System
+    # Mode 4 (Interaktive Charts) wird von show_results.sh separat über
+    # src/dbot/analysis/interactive_status.py gestartet. Hier nur sauber beenden.
     if args.mode == '4':
-        try:
-            from utbot2.analysis.interactive_status import main as interactive_main
-            interactive_main()
-        except Exception as e:
-            print(f"Fehler beim Ausführen der interaktiven Charts: {e}")
-            import traceback
-            traceback.print_exc()
-        sys.exit(0)  # Beende sauber nach Mode 4
+        print("Starte interaktive Charts bitte über show_results.sh (Modus 4).")
+        sys.exit(0)
 
     # Für Modi 1, 2, 3: Frage Backtest-Konfiguration ab
     print("\n--- Bitte Konfiguration für den Backtest festlegen ---")
