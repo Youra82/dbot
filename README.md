@@ -123,24 +123,60 @@ git clone https://github.com/Youra82/dbot.git
 cd dbot
 ```
 
-### 2️⃣ Virtual Environment einrichten
+### 2️⃣ Installation mit automatischem Skript (empfohlen)
+
+#### Linux/macOS:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# oder
-.venv\Scripts\activate  # Windows
+# Update-Rechte aktivieren (einmalig)
+chmod +x install.sh
+
+# Installation durchführen
+./install.sh
 ```
 
-### 3️⃣ Dependencies installieren
+Das Skript:
+- ✅ Prüft System-Abhängigkeiten (Python, Git)
+- ✅ Erstellt Virtual Environment
+- ✅ Installiert alle Python-Packages
+- ✅ Setzt Ausführungsrechte für alle Skripte
 
-```bash
+#### Windows (PowerShell):
+
+```powershell
+# Manuelle Installation erforderlich:
+python3 -m venv .venv
+.venv\Scripts\activate
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 4️⃣ Geheimnisse & Einstellungen konfigurieren
+### 3️⃣ Manuelle Installation (falls install.sh nicht funktioniert)
 
-#### **secret.json** erstellen
+```bash
+# Virtual Environment erstellen
+python3 -m venv .venv
+
+# Aktivieren
+source .venv/bin/activate  # Linux/macOS
+# oder
+.venv\Scripts\activate     # Windows
+
+# Dependencies installieren
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 4️⃣ Konfiguration
+
+Erstelle `secret.json` mit deinen API-Keys:
+
+```bash
+nano secret.json  # oder mit VS Code
+```
+
+Beispiel:
+
 ```json
 {
   "dbot": [
@@ -159,28 +195,29 @@ pip install -r requirements.txt
 }
 ```
 
-#### **settings.json** konfigurieren
-```json
-{
-  "live_trading_settings": {
-    "use_auto_optimizer_results": false,
-    "active_strategies": [
-      {
-        "symbol": "BTC/USDT:USDT",
-        "timeframe": "1m",
-        "use_macd_filter": false,
-        "active": true
-      },
-      {
-        "symbol": "ETH/USDT:USDT",
-        "timeframe": "5m",
-        "use_macd_filter": false,
-        "active": true
-      }
-    ]
-  }
-}
+---
+
+## 🔄 Updates & Wartung
+
+### Update aktivieren (einmalig)
+
+```bash
+chmod +x update.sh
 ```
+
+### Update ausführen
+
+```bash
+bash ./update.sh
+```
+
+Das Update-Skript:
+1. ✅ Sichert `secret.json` (API-Keys bleiben erhalten!)
+2. ✅ Holt den neuesten Code von GitHub
+3. ✅ Aktualisiert alle Dateien auf den neuesten Stand
+4. ✅ Stellt `secret.json` wieder her
+5. ✅ Löscht alten Python-Cache für sauberen Neustart
+6. ✅ Setzt Ausführungsrechte für alle Shell-Skripte
 
 ---
 
@@ -212,33 +249,7 @@ Dies verhindert Trades gegen den Haupttrend.
 
 ---
 
-## 🔄 Updates
-
-### Update aktivieren (einmalig)
-
-```bash
-chmod +x update.sh
-```
-
-### Update ausführen
-
-```bash
-bash ./update.sh
-```
-
-Das Update-Skript:
-1. ✅ Sichert `secret.json` (API-Keys bleiben erhalten!)
-2. ✅ Holt den neuesten Code von GitHub
-3. ✅ Aktualisiert alle Dateien auf den neuesten Stand
-4. ✅ Stellt `secret.json` wieder her
-5. ✅ Löscht alten Python-Cache für sauberen Neustart
-6. ✅ Setzt Ausführungsrechte für alle Shell-Skripte
-
----
-
 ## 🎮 Live-Trading
-
-### Via Command Line
 
 ```bash
 python src/dbot/strategy/run.py --symbol BTC/USDT:USDT --timeframe 1m --use_macd false
