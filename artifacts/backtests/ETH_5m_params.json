@@ -1,0 +1,15 @@
+{
+  "symbol": "ETH/USDT:USDT",
+  "timeframe": "5m",
+  "start_date": "2025-12-01",
+  "end_date": "2025-12-17",
+  "leverage": 8.0,
+  "risk_per_trade": 0.12,
+  "fee_pct": 0.0005,
+  "atr_multiplier_sl": 1.0,
+  "min_sl_pct": 0.003,
+  "risk_reward_ratio": 2.5,
+  "trailing_stop_activation_rr": 1.5,
+  "trailing_stop_callback_rate_pct": 0.5,
+  "start_capital": 50.0
+}
