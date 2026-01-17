@@ -215,7 +215,18 @@ Log-Verzeichnis sicherstellen: `mkdir -p /home/ubuntu/dbot/logs`
 - `run_tests.sh`, `run_correct_backtest.sh/.ps1`: Tests & Backtests
 - Backtest-/Optimizer-Resultate unter `artifacts/results/`
 
-Start (Linux):
+### Config-Management
+Alle Konfigurationsdateien löschen:
+```bash
+rm -f src/dbot/strategy/configs/config_*.json
+```
+
+Prüfen, ob alles gelöscht wurde:
+```bash
+ls -la src/dbot/strategy/configs/config_*.json 2>&1 || echo "✅ Alle Konfigurationsdateien wurden gelöscht"
+```
+
+### Start (Linux)
 ```bash
 chmod +x run_pipeline.sh run_pipeline_automated.sh
 ./run_pipeline.sh
