@@ -298,11 +298,21 @@ def main():
     print(f"Trades: {result['trades_count']} | Win-Rate: {result['win_rate']:.2f}% | Max DD: {result['max_drawdown_pct']:.2f}%")
 
     if args.export:
-        equity_df = pd.DataFrame(result['equity_curve'])
-        equity_df.to_csv(args.export, index=False)
-        print(f"Equity-Kurve exportiert nach {args.export}")
         try:
-            base, _ = os.path.splitext(args.export)
+            # Convert to absolute path
+            export_abs = os.path.abspath(args.export)
+            export_dir = os.path.dirname(export_abs)
+            
+            # Ensure directory exists
+            os.makedirs(export_dir, exist_ok=True)
+            
+            # Export equity curve
+            equity_df = pd.DataFrame(result['equity_curve'])
+            equity_df.to_csv(export_abs, index=False)
+            print(f"Equity-Kurve exportiert nach {export_abs}")
+            
+            # Export parameters
+            base, _ = os.path.splitext(export_abs)
             params_out = base + "_params.json"
             meta = {
                 'symbol': args.symbol,
@@ -323,7 +333,8 @@ def main():
                 json.dump(meta, f, indent=2)
             print(f"Run-Parameter gespeichert nach {params_out}")
         except Exception as e:
-            print(f"Warnung: Konnte Parameter nicht speichern: {e}")
+            print(f"FEHLER beim Speichern: {e}", file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == '__main__':
