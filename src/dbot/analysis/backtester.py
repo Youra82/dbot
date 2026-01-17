@@ -39,19 +39,34 @@ def load_account_config():
 
 
 def fetch_ohlcv(symbol, timeframe, start_date, end_date):
-    account_config = load_account_config()
-    exchange = Exchange(account_config)
-    df = exchange.fetch_historical_ohlcv(symbol, timeframe, start_date, end_date)
-    return df
+    try:
+        account_config = load_account_config()
+        exchange = Exchange(account_config)
+        df = exchange.fetch_historical_ohlcv(symbol, timeframe, start_date, end_date)
+        if df is None or df.empty:
+            print(f"FEHLER: Keine Daten für {symbol} {timeframe} im Zeitraum {start_date} - {end_date}")
+            return pd.DataFrame()
+        return df
+    except Exception as e:
+        print(f"FEHLER beim Datenabruf: {e}")
+        return pd.DataFrame()
 
 
 def simulate_smc_backtest(df, params):
-    if df is None or df.empty or len(df) < 100:
-        return {"error": "Zu wenige Daten für Backtest"}
+    if df is None or df.empty:
+        return {"error": "Keine Daten vorhanden"}
+    
+    if len(df) < 100:
+        return {"error": f"Zu wenige Daten für Backtest (nur {len(df)} Kerzen, min. 100 erforderlich)"}
 
     df = df.copy()
-    df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-    df.set_index('timestamp', inplace=True)
+    
+    # Timestamp handling - prüfe ob bereits Index oder Spalte
+    if 'timestamp' in df.columns:
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+        df.set_index('timestamp', inplace=True)
+    elif not isinstance(df.index, pd.DatetimeIndex):
+        df.index = pd.to_datetime(df.index, utc=True)
 
     # ATR einmal berechnen
     atr_indicator = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14)
