@@ -59,10 +59,11 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
             with open(os.path.join(PROJECT_ROOT, 'secret.json'), "r") as f:
                 secrets_cache = json.load(f)
 
-        # Bevorzugt DBot-Account, fällt sonst auf andere zurück
+        # Bevorzugt DBot-Account; toleriert alten utbot2-Schlüssel nur noch als Fallback
         if 'dbot' in secrets_cache:
             api_setup = secrets_cache['dbot'][0]
         elif 'utbot2' in secrets_cache:
+            # Deprecated: bitte secret.json auf "dbot" umstellen
             api_setup = secrets_cache['utbot2'][0]
         elif 'titanbot' in secrets_cache:
             api_setup = secrets_cache['titanbot'][0]

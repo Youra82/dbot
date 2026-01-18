@@ -30,7 +30,9 @@ def run_test():
         with open(os.path.join(PROJECT_ROOT, 'secret.json'), "r") as f:
             secrets = json.load(f)
         
-        test_account = secrets['utbot2'][0]
+        test_account = secrets.get('dbot', [{}])[0] if isinstance(secrets.get('dbot'), list) else secrets.get('dbot', {})
+        if not test_account:
+            raise ValueError("Kein 'dbot'-Account in secret.json gefunden. Bitte Schlüssel umbenennen.")
         telegram_config = secrets.get('telegram', {})
         exchange = Exchange(test_account)
 
