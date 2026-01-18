@@ -1,8 +1,8 @@
-# src/utbot2/utils/guardian.py
+# src/dbot/utils/guardian.py
 import logging
 from functools import wraps
 # *** Geänderter Importpfad ***
-from utbot2.utils.telegram import send_message
+from dbot.utils.telegram import send_message
 
 def guardian_decorator(func):
     """

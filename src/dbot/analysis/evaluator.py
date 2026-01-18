@@ -50,7 +50,7 @@ def evaluate_dataset(data: pd.DataFrame, timeframe: str):
     just1 = f"- Phasen-Verteilung ({score1}/4): {'Exzellent' if score1==4 else 'Gut' if score1==3 else 'Mäßig' if score1==2 else 'Einseitig'}. ({dist_text})"
 
     # --- Metrik 2: Handelbarkeit / Ichimoku-Signal-Dichte (max. 4 Punkte) ---
-    # Hinweis: Die frühere Abhängigkeit zu utbot2 (IchimokuEngine) wurde entfernt.
+    # Hinweis: IchimokuEngine ist nicht mehr aktiv.
     # Wenn du Ichimoku-Signal-Dichte wieder nutzen willst, füge eine Engine in dbot/strategy hinzu
     # und ersetze diesen Block. Bis dahin nutzen wir eine neutrale Dichte von 0.
     event_density = 0

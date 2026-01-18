@@ -321,7 +321,7 @@ def check_and_open_new_position(exchange, model, scaler, params, telegram_config
 
         if telegram_config and telegram_config.get('bot_token') and telegram_config.get('chat_id'):
             msg = (
-                f"🎯 UTBOT2 ICHIMOKU: {symbol} ({timeframe}) [MTF: {market_bias}]\n"
+                f"🎯 DBOT PHYSICS: {symbol} ({timeframe}) [MTF: {market_bias}]\n"
                 f"- Richtung: {pos_side.upper()}\n"
                 f"- Entry: ${actual_entry_price:.6f}\n"
                 f"- SL: ${sl_rounded:.6f}\n"
@@ -388,7 +388,7 @@ def manage_open_position(exchange, position, params, telegram_config, logger):
                     
                     if telegram_config and telegram_config.get('bot_token') and telegram_config.get('chat_id'):
                         msg = (
-                            f"🔄 UTBOT2: Position geschlossen ({symbol})\n"
+                            f"🔄 DBOT: Position geschlossen ({symbol})\n"
                             f"Grund: Gegensignal erkannt\n"
                             f"Position: {pos_side.upper()} → Signal: {signal_side.upper()}"
                         )
@@ -413,7 +413,7 @@ def manage_open_position(exchange, position, params, telegram_config, logger):
                     
                     if telegram_config and telegram_config.get('bot_token') and telegram_config.get('chat_id'):
                         msg = (
-                            f"📉 UTBOT2: Position geschlossen ({symbol})\n"
+                            f"📉 DBOT: Position geschlossen ({symbol})\n"
                             f"Grund: HTF-Bias Änderung\n"
                             f"Position: {pos_side.upper()} → HTF: {market_bias}"
                         )

@@ -1,7 +1,7 @@
 """Portfolio-Simulation für DBot Physics.
 
 Simuliert mehrere Physics-Strategien gleichzeitig auf einem gemeinsamen
-Equity-Konto (ähnlich der UtBot2-Variante, aber mit PhysicsEngine).
+Equity-Konto mit PhysicsEngine.
 """
 
 import pandas as pd

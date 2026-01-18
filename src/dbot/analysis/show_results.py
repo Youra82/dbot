@@ -1,8 +1,7 @@
 """Ergebnis-Analyse für DBot Physics.
 
-Stellt dieselben Modi wie bei UtBot2 bereit, arbeitet aber mit den
-DBot-Physics-Configs unter src/dbot/strategy/configs und der
-Physics-Backtest-Pipeline.
+Arbeitet mit den DBot-Physics-Configs unter src/dbot/strategy/configs
+und der Physics-Backtest-Pipeline.
 """
 
 import os

@@ -1,4 +1,4 @@
-# /root/utbot2/src/utbot2/utils/timeframe_utils.py
+# src/dbot/utils/timeframe_utils.py
 import math
 
 def determine_htf(timeframe):

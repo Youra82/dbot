@@ -1,7 +1,6 @@
 """Backtester für die DBot Physics-Strategie.
 
-Vereinfacht aus der UtBot2-Variante abgeleitet, nutzt jedoch die
-PhysicsEngine und die physics-basierte Trade-Logik.
+Nutzt die PhysicsEngine und die physics-basierte Trade-Logik.
 """
 
 import os

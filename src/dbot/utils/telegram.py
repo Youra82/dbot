@@ -1,4 +1,4 @@
-# src/utbot2/utils/telegram.py # <-- Kommentar geändert
+# src/dbot/utils/telegram.py
 import requests
 import logging
 
