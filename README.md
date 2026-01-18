@@ -316,5 +316,36 @@ Physik-inspirierter Crypto-Bot (15m–1d) mit VWAP-Mean-Reversion, Impuls-Pullba
 - HTF-Bias muss mit Entry-Richtung alignen (keine Trades gegen 1D-Supertrend)
 - Erst auf Testnet prüfen, dann live
 
-## Lizenz
-Siehe [LICENSE](LICENSE).
+## 📤 Konfigurationsdateien hochladen
+
+Wenn neue `config_*.json` Dateien aus der Physics-Optimierung generiert wurden, können diese ins Repository gepusht werden:
+
+```bash
+cd ~/dbot
+git pull origin main
+git add src/dbot/strategy/configs/*.json
+git commit -m "Add optimized dbot physics configs"
+git push origin main
+```
+
+Falls Sie die Dateien mit Force pushen müssen (lokale Versionen überschreiben):
+
+```bash
+cd ~/dbot
+git add src/dbot/strategy/configs/*.json
+git commit -m "Force update dbot configs"
+git push -f origin main
+```
+
+Bei **Konflikten** (wenn Remote andere Versionen hat):
+
+```bash
+cd ~/dbot
+git checkout --ours src/dbot/strategy/configs/
+git add src/dbot/strategy/configs/
+git rebase --continue
+git push origin main
+```
+
+**Hinweis:** `.venv/` und Cache-Dateien sollten **nicht** gepusht werden. Ein `.gitignore` schließt diese aus.
+
