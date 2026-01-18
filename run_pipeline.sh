@@ -13,9 +13,33 @@ echo -e "=======================================================${NC}"
 VENV_PATH=".venv/bin/activate"
 OPTIMIZER="src/dbot/analysis/optimizer.py" 
 
-# --- Umgebung aktivieren ---
+# --- Umgebung sicherstellen und aktivieren ---
+if [ ! -f "$VENV_PATH" ]; then
+    echo -e "${YELLOW}Virtuelle Umgebung fehlt. Erstelle .venv ...${NC}"
+    python3 -m venv .venv || python -m venv .venv
+fi
+
+if [ ! -f "$VENV_PATH" ]; then
+    echo -e "${RED}Konnte .venv nicht erstellen. Bitte Python/venv prüfen.${NC}"
+    exit 1
+fi
+
 source "$VENV_PATH"
 echo -e "${GREEN}✔ Virtuelle Umgebung wurde erfolgreich aktiviert.${NC}"
+
+# --- Abhängigkeiten sicherstellen (Optuna & Co.) ---
+python - <<'PY'
+try:
+    import optuna  # noqa: F401
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0)
+PY
+
+if [ $? -ne 0 ]; then
+    echo -e "${YELLOW}Installiere Python-Abhängigkeiten (requirements.txt)...${NC}"
+    pip install -r requirements.txt
+fi
 
 # --- AUFRÄUM-ASSISTENT ---
 echo -e "\n${YELLOW}Möchtest du alle alten, generierten Configs vor dem Start löschen?${NC}"
@@ -88,5 +112,7 @@ for symbol in $SYMBOLS; do
     done
 done
 
-deactivate
+if type deactivate >/dev/null 2>&1; then
+    deactivate
+fi
 echo -e "\n${BLUE}✔ Alle Pipeline-Aufgaben erfolgreich abgeschlossen!${NC}"
