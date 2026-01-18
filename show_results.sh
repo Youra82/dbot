@@ -4,54 +4,46 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
+
 VENV_PATH=".venv/bin/activate"
-RESULTS_SCRIPT="src/utbot2/analysis/show_results.py"
+RESULTS_SCRIPT="src/dbot/analysis/show_results.py"
+OPTIMAL_CONFIGS_FILE=".optimal_configs.tmp"
+UPDATE_SCRIPT="update_settings_from_optimizer.py"
 
 source "$VENV_PATH"
 
-# --- ERWEITERTES MODUS-MENÜ ---
-echo -e "\n${YELLOW}Wähle einen Analyse-Modus für UtBot2:${NC}"
+echo -e "${BLUE}======================================================="
+echo "   DBot Ergebnisse & Analyse"
+echo -e "=======================================================${NC}"
+
+# --- MODUS-MENÜ (JaegerBot kompatibel) ---
+echo -e "\n${YELLOW}Wähle einen Analyse-Modus:${NC}"
 echo "  1) Einzel-Analyse (jede Strategie wird isoliert getestet)"
 echo "  2) Manuelle Portfolio-Simulation (du wählst das Team)"
 echo "  3) Automatische Portfolio-Optimierung (der Bot wählt das beste Team)"
-echo "  4) Interaktive Charts (Ichimoku Cloud + Trade-Signale mit Entry/Exit Marker)"
+echo "  4) Interaktive Charts (Entry/Exit-Signale nur, keine Indikatoren)"
 read -p "Auswahl (1-4) [Standard: 1]: " MODE
-
-# Validierung der Mode-Eingabe - Nur Ziffern 1-4 akzeptieren
-if [[ ! "$MODE" =~ ^[1-4]?$ ]]; then
-    echo -e "${RED}❌ Ungültige Eingabe! Verwende Standard (1).${NC}"
-    MODE=1
-fi
-
-# Standard auf 1 setzen wenn leer
 MODE=${MODE:-1}
 
-# *** NEU: Max Drawdown Abfrage für Modus 3 ***
-TARGET_MAX_DD=30 # Standardwert
-if [ "$MODE" == "3" ]; then
-    read -p "Gewünschter maximaler Drawdown in % für die Optimierung [Standard: 30]: " DD_INPUT
-    # Prüfe, ob eine gültige Zahl eingegeben wurde, sonst nimm Standard
-    if [[ "$DD_INPUT" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-        TARGET_MAX_DD=$DD_INPUT
-    else
-        echo "Ungültige Eingabe, verwende Standard: ${TARGET_MAX_DD}%"
-    fi
-fi
-# *** ENDE NEU ***
 
-if [ ! -f "$RESULTS_SCRIPT" ]; then
-    echo -e "${RED}Fehler: Die Analyse-Datei '$RESULTS_SCRIPT' wurde nicht gefunden.${NC}"
-    deactivate
-    exit 1
+python3 "$RESULTS_SCRIPT" --mode "$MODE"
+
+if [ $? -ne 0 ]; then
+	echo -e "${RED}❌ Fehler: Die Analyse-Datei '$RESULTS_SCRIPT' wurde nicht gefunden.${NC}"
+	deactivate
+	exit 1
 fi
 
-# *** NEU: Übergebe Max DD an das Python Skript ***
-python3 "$RESULTS_SCRIPT" --mode "$MODE" --target_max_drawdown "$TARGET_MAX_DD"
-
-# --- OPTION 4: INTERAKTIVE CHARTS (Behandelt direkt in show_results.py) ---
+# --- OPTION 4: INTERAKTIVE CHARTS ---
 if [ "$MODE" == "4" ]; then
+    echo -e "\n${YELLOW}========== INTERAKTIVE CHARTS ===========${NC}"
+    echo ""
+    echo "Wähle Konfigurationsdateien von der Liste oben"
+    echo ""
+    python3 src/dbot/analysis/interactive_status.py
+    
     if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ Interaktive Charts wurden generiert!${NC}"
+        echo -e "${GREEN}✅ Charts wurden generiert!${NC}"
     else
         echo -e "${RED}❌ Fehler beim Generieren der Charts.${NC}"
     fi
@@ -60,4 +52,59 @@ if [ "$MODE" == "4" ]; then
     exit 0
 fi
 
+if [ "$MODE" == "3" ] && [ -f "$OPTIMAL_CONFIGS_FILE" ]; then
+    echo ""
+    echo -e "${YELLOW}========================================${NC}"
+    echo -e "${YELLOW}  SETTINGS AUTOMATISCH AKTUALISIEREN?${NC}"
+    echo -e "${YELLOW}========================================${NC}"
+    echo ""
+    echo "Die optimierten Strategien können jetzt automatisch"
+    echo "in die settings.json übernommen werden."
+    echo ""
+    echo -e "${RED}ACHTUNG:${NC} Dies ersetzt alle aktuellen Strategien!"
+    echo "Es wird automatisch ein Backup erstellt (settings.json.backup)."
+    echo ""
+    read -p "Sollen die optimierten Strategien übernommen werden? (j/n): " APPLY_SETTINGS
+    
+    if [[ "$APPLY_SETTINGS" =~ ^[jJyY]$ ]]; then
+        echo ""
+        echo -e "${BLUE}Aktualisiere settings.json...${NC}"
+        
+        # Lese Config-Dateien aus Temp-Datei
+        CONFIGS=$(cat "$OPTIMAL_CONFIGS_FILE")
+        
+        # Rufe Python-Script auf mit allen Config-Namen als Argumente
+        python3 "$UPDATE_SCRIPT" $CONFIGS
+        
+        if [ $? -eq 0 ]; then
+            echo ""
+            echo -e "${GREEN}✅ Settings wurden erfolgreich aktualisiert!${NC}"
+            echo -e "${GREEN}   Backup wurde erstellt: settings.json.backup${NC}"
+        else
+            echo ""
+            echo -e "${RED}❌ Fehler beim Aktualisieren der Settings.${NC}"
+        fi
+        
+        # Lösche Temp-Datei
+        rm -f "$OPTIMAL_CONFIGS_FILE"
+    else
+        echo ""
+        echo -e "${YELLOW}ℹ  Settings wurden NICHT aktualisiert.${NC}"
+        echo "Du kannst die Strategien später manuell in settings.json eintragen."
+        
+        # Lösche Temp-Datei
+        rm -f "$OPTIMAL_CONFIGS_FILE"
+    fi
+fi
+
 deactivate
+
+
+echo -e "\n${BLUE}=======================================================${NC}"
+echo -e "${BLUE}  Nützliche Befehle:${NC}"
+echo -e "${BLUE}=======================================================${NC}"
+echo "  ./show_status.sh               # Bot Status prüfen"
+echo "  tail -f logs/dbot_*.log        # Alle Logs live"
+echo "  grep 'Position' logs/*.log     # Alle Trade-Ereignisse"
+echo "  python master_runner.py        # Bot starten"
+echo -e "${BLUE}=======================================================${NC}"
