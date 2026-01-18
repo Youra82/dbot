@@ -1,0 +1,25 @@
+{
+    "market": {
+        "symbol": "DOGE/USDT:USDT",
+        "timeframe": "4h"
+    },
+    "strategy": {
+        "prediction_threshold": 0.6,
+        "fib_length": 250,
+        "fib_mult": 2.82
+    },
+    "risk": {
+        "margin_mode": "isolated",
+        "risk_per_trade_pct": 1.74,
+        "risk_reward_ratio": 1.68,
+        "leverage": 14,
+        "trailing_stop_activation_rr": 1.08,
+        "trailing_stop_callback_rate_pct": 0.57,
+        "atr_multiplier_sl": 3.95,
+        "min_sl_pct": 0.38
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    }
+}
