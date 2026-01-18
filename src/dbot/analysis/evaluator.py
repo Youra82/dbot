@@ -1,13 +1,13 @@
-# src/utbot2/analysis/evaluator.py
+# src/dbot/analysis/evaluator.py
 import pandas as pd
 import numpy as np
 import ta
 import sys
 import os
 
+# PROJECT_ROOT wird aktuell nicht für weitere Imports benötigt, daher nur behalten falls später erweitert
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
-from utbot2.strategy.ichimoku_engine import IchimokuEngine  # Ichimoku statt SMC
 
 def evaluate_dataset(data: pd.DataFrame, timeframe: str):
     """
@@ -50,32 +50,17 @@ def evaluate_dataset(data: pd.DataFrame, timeframe: str):
     just1 = f"- Phasen-Verteilung ({score1}/4): {'Exzellent' if score1==4 else 'Gut' if score1==3 else 'Mäßig' if score1==2 else 'Einseitig'}. ({dist_text})"
 
     # --- Metrik 2: Handelbarkeit / Ichimoku-Signal-Dichte (max. 4 Punkte) ---
-    try:
-        # Lasse die Ichimoku-Engine laufen, um Signale zu finden
-        engine = IchimokuEngine(settings={})
-        df_ichi = engine.process_dataframe(data.copy())
-        
-        # Zähle TK-Crosses (Tenkan kreuzt Kijun)
-        df_ichi['tk_cross'] = (
-            (df_ichi['tenkan_sen'] > df_ichi['kijun_sen']) & 
-            (df_ichi['tenkan_sen'].shift(1) <= df_ichi['kijun_sen'].shift(1))
-        ) | (
-            (df_ichi['tenkan_sen'] < df_ichi['kijun_sen']) & 
-            (df_ichi['tenkan_sen'].shift(1) >= df_ichi['kijun_sen'].shift(1))
-        )
-        event_count = df_ichi['tk_cross'].sum()
-        
-        # Berechne Events pro 1000 Kerzen
-        event_density = (event_count / len(data)) * 1000 if len(data) > 0 else 0
-    except Exception:
-        event_density = 0
+    # Hinweis: Die frühere Abhängigkeit zu utbot2 (IchimokuEngine) wurde entfernt.
+    # Wenn du Ichimoku-Signal-Dichte wieder nutzen willst, füge eine Engine in dbot/strategy hinzu
+    # und ersetze diesen Block. Bis dahin nutzen wir eine neutrale Dichte von 0.
+    event_density = 0
 
-    if event_density < 5: score2 = 0  # Weniger als 5 TK-Crosses pro 1000 Kerzen
+    if event_density < 5: score2 = 0  # Weniger als 5 Events pro 1000 Kerzen (aktuell 0)
     elif event_density < 15: score2 = 1
     elif event_density < 30: score2 = 2
     elif event_density < 50: score2 = 3
     else: score2 = 4
-    just2 = f"- Handelbarkeit ({score2}/4): {'Exzellent' if score2==4 else 'Gut' if score2==3 else 'Mäßig' if score2==2 else 'Gering' if score2==1 else 'Sehr Gering'}. {event_density:.1f} TK-Crosses/1000 Kerzen."
+    just2 = f"- Handelbarkeit ({score2}/4): neutrale Bewertung (Ichimoku deaktiviert). {event_density:.1f} Events/1000 Kerzen."
 
     # --- Metrik 3: Datenmenge (max. 2 Punkte) ---
     num_candles = len(data)
