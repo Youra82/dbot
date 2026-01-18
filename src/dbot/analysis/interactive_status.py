@@ -475,15 +475,16 @@ def main():
         with open(os.path.join(PROJECT_ROOT, 'secret.json'), 'r') as f:
             secrets = json.load(f)
     except Exception as e:
-        logger.error(f"Fehler beim Laden von secret.json: {e}")
-        sys.exit(1)
+        logger.warning(f"⚠️ secret.json konnte nicht geladen werden ({e}). Nutze Dummy-Exchange für Charts.")
+        secrets = {}
     
-    account = secrets.get('dbot', [None])[0]
-    if not account:
-        logger.error("Keine DBot-Accountkonfiguration gefunden")
-        sys.exit(1)
+    account = secrets.get('dbot', [{}])[0] if isinstance(secrets.get('dbot'), list) else secrets.get('dbot', {})
     
-    exchange = Exchange(account)
+    if not account or not isinstance(account, dict):
+        logger.warning("⚠️ Keine DBot-Accountkonfiguration in secret.json gefunden. Generiere Charts ohne Daten-Live-Abruf.")
+        account = {'exchange': 'binance', 'apiKey': '', 'secret': ''}  # Dummy
+    
+    exchange = Exchange(account) if account.get('apiKey') else None
     telegram_config = secrets.get('telegram', {})
     
     # Generiere Chart für jede gewählte Config
@@ -507,6 +508,10 @@ def main():
                 end_date_for_load = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             else:
                 end_date_for_load = end_date
+            
+            if not exchange:
+                logger.error(f"❌ Exchange nicht verfügbar. Stelle sicher, dass secret.json mit gültiger dbot-Konfiguration existiert.")
+                continue
             
             df = exchange.fetch_historical_ohlcv(symbol, timeframe, start_date_for_load, end_date_for_load)
             
