@@ -1,0 +1,45 @@
+{
+    "market": {
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "30m",
+        "htf": "2h"
+    },
+    "strategy": {
+        "type": "physics",
+        "enable_vwap_setup": true,
+        "enable_impulse_pullback": true,
+        "enable_volatility_expansion": true,
+        "atr_period": 10,
+        "atr_multiplier_trend": 1.57,
+        "momentum_period": 10,
+        "momentum_sma_period": 4,
+        "volume_ma_period": 11,
+        "volume_threshold": 1.9,
+        "regime_atr_threshold": 0.0283,
+        "ema_fast": 12,
+        "ema_slow": 34,
+        "range_lookback": 16,
+        "range_overlap_threshold": 0.64,
+        "vwap_mean_reversion_threshold": 1.51,
+        "momentum_threshold": 0.83,
+        "sl_atr_multiplier": 2.0,
+        "tp_atr_multiplier": 3.0,
+        "tp_atr_multiplier_expansion": 2.43,
+        "exit_on_regime_change": true,
+        "exit_on_momentum_reversal": true,
+        "exit_on_vwap_cross": false,
+        "exit_on_energy_loss": true,
+        "supertrend_atr_period": 12,
+        "supertrend_multiplier": 3.1
+    },
+    "risk": {
+        "margin_mode": "isolated",
+        "risk_per_trade_pct": 0.64,
+        "risk_reward_ratio": 1.85,
+        "leverage": 7,
+        "trailing_stop_activation_rr": 1.92,
+        "trailing_stop_callback_rate_pct": 0.45,
+        "atr_multiplier_sl": 1.73,
+        "min_sl_pct": 0.5
+    }
+}

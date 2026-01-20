@@ -1,0 +1,45 @@
+{
+    "market": {
+        "symbol": "ETH/USDT:USDT",
+        "timeframe": "4h",
+        "htf": "1d"
+    },
+    "strategy": {
+        "type": "physics",
+        "enable_vwap_setup": true,
+        "enable_impulse_pullback": true,
+        "enable_volatility_expansion": true,
+        "atr_period": 19,
+        "atr_multiplier_trend": 1.43,
+        "momentum_period": 8,
+        "momentum_sma_period": 4,
+        "volume_ma_period": 26,
+        "volume_threshold": 1.24,
+        "regime_atr_threshold": 0.0113,
+        "ema_fast": 34,
+        "ema_slow": 55,
+        "range_lookback": 27,
+        "range_overlap_threshold": 0.8,
+        "vwap_mean_reversion_threshold": 1.62,
+        "momentum_threshold": 0.66,
+        "sl_atr_multiplier": 1.08,
+        "tp_atr_multiplier": 2.15,
+        "tp_atr_multiplier_expansion": 2.42,
+        "exit_on_regime_change": true,
+        "exit_on_momentum_reversal": true,
+        "exit_on_vwap_cross": false,
+        "exit_on_energy_loss": true,
+        "supertrend_atr_period": 8,
+        "supertrend_multiplier": 2.85
+    },
+    "risk": {
+        "margin_mode": "isolated",
+        "risk_per_trade_pct": 1.97,
+        "risk_reward_ratio": 1.61,
+        "leverage": 3,
+        "trailing_stop_activation_rr": 2.91,
+        "trailing_stop_callback_rate_pct": 0.54,
+        "atr_multiplier_sl": 2.09,
+        "min_sl_pct": 0.5
+    }
+}

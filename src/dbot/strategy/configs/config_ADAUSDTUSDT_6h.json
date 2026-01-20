@@ -1,0 +1,45 @@
+{
+    "market": {
+        "symbol": "ADA/USDT:USDT",
+        "timeframe": "6h",
+        "htf": "1d"
+    },
+    "strategy": {
+        "type": "physics",
+        "enable_vwap_setup": true,
+        "enable_impulse_pullback": true,
+        "enable_volatility_expansion": true,
+        "atr_period": 14,
+        "atr_multiplier_trend": 1.77,
+        "momentum_period": 6,
+        "momentum_sma_period": 3,
+        "volume_ma_period": 19,
+        "volume_threshold": 1.47,
+        "regime_atr_threshold": 0.0479,
+        "ema_fast": 33,
+        "ema_slow": 66,
+        "range_lookback": 28,
+        "range_overlap_threshold": 0.87,
+        "vwap_mean_reversion_threshold": 1.6,
+        "momentum_threshold": 0.54,
+        "sl_atr_multiplier": 1.0,
+        "tp_atr_multiplier": 2.01,
+        "tp_atr_multiplier_expansion": 2.85,
+        "exit_on_regime_change": true,
+        "exit_on_momentum_reversal": true,
+        "exit_on_vwap_cross": false,
+        "exit_on_energy_loss": true,
+        "supertrend_atr_period": 13,
+        "supertrend_multiplier": 2.96
+    },
+    "risk": {
+        "margin_mode": "isolated",
+        "risk_per_trade_pct": 1.98,
+        "risk_reward_ratio": 3.04,
+        "leverage": 4,
+        "trailing_stop_activation_rr": 1.17,
+        "trailing_stop_callback_rate_pct": 0.58,
+        "atr_multiplier_sl": 2.24,
+        "min_sl_pct": 0.5
+    }
+}
