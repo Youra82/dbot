@@ -80,7 +80,7 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
             return full_data.loc[req_start_dt:req_end_dt]
         return pd.DataFrame()
     except Exception: return pd.DataFrame()
-def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose=False):
+def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose=False, return_equity=False):
     """Backtest für die Physics-Strategie.
 
     Nutzt PhysicsEngine + get_physics_signal + ATR-basiertes Risiko-Management
@@ -88,13 +88,17 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
     """
 
     if data.empty or len(data) < 60:
-        return {
+        empty_result = {
             "total_pnl_pct": -100,
             "trades_count": 0,
             "win_rate": 0,
             "max_drawdown_pct": 1.0,
             "end_capital": start_capital,
+            "trades": []
         }
+        if return_equity:
+            return empty_result, []
+        return empty_result
 
     symbol = strategy_params.get('symbol', '')
     timeframe = strategy_params.get('timeframe', '')
@@ -109,13 +113,17 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
 
     processed_data.dropna(subset=['atr'], inplace=True)
     if processed_data.empty:
-        return {
+        empty_result = {
             "total_pnl_pct": -100,
             "trades_count": 0,
             "win_rate": 0,
             "max_drawdown_pct": 1.0,
             "end_capital": start_capital,
+            "trades": []
         }
+        if return_equity:
+            return empty_result, []
+        return empty_result
 
     current_capital = start_capital
     peak_capital = start_capital
@@ -123,6 +131,8 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
     trades_count = 0
     wins_count = 0
     position = None
+    trades_list = []  # Für Chart-Visualisierung
+    equity_snapshots = []  # Für Equity Curve
 
     # Risiko-Parameter
     risk_reward_ratio = risk_params.get('risk_reward_ratio', 2.0)
@@ -140,6 +150,9 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
     for timestamp, current_candle in processed_data.iterrows():
         if current_capital <= 0:
             break
+        
+        # Equity Snapshot bei jeder Kerze
+        equity_snapshots.append({'timestamp': timestamp, 'equity': current_capital})
 
         # --- Positions-Management ---
         if position is not None:
@@ -189,6 +202,17 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
                 if (pnl_usd - total_fees) > 0:
                     wins_count += 1
                 trades_count += 1
+                
+                # Trade für Visualisierung speichern
+                entry_time = position.get('entry_time')
+                entry_time_str = entry_time.isoformat() if hasattr(entry_time, 'isoformat') else str(entry_time)
+                exit_time_str = timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp)
+                trade_record = {
+                    f"entry_{position['side']}": {'time': entry_time_str, 'price': position['entry_price']},
+                    f"exit_{position['side']}": {'time': exit_time_str, 'price': exit_price}
+                }
+                trades_list.append(trade_record)
+                
                 position = None
                 peak_capital = max(peak_capital, current_capital)
                 if peak_capital > 0:
@@ -246,6 +270,7 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
                     'trailing_active': False,
                     'activation_price': act,
                     'peak_price': entry_price,
+                    'entry_time': timestamp  # Für Trade-Visualisierung
                 }
 
     win_rate = (wins_count / trades_count * 100) if trades_count > 0 else 0
@@ -256,10 +281,15 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
     )
     final_capital = max(0, current_capital)
 
-    return {
+    stats = {
         "total_pnl_pct": final_pnl_pct,
         "trades_count": trades_count,
         "win_rate": win_rate,
         "max_drawdown_pct": max_drawdown_pct,
         "end_capital": final_capital,
+        "trades": trades_list
     }
+    
+    if return_equity:
+        return stats, equity_snapshots
+    return stats
