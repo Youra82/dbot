@@ -316,27 +316,27 @@ Um eine sofortige Optimierung zu starten (ignoriert das Zeitintervall):
 
 ```bash
 # Letzten Optimierungszeitpunkt löschen (erzwingt Neustart)
-rm /home/ubuntu/dbot/data/cache/.last_optimization_run
+rm ~/dbot/data/cache/.last_optimization_run
 
 # Master Runner starten (prüft ob Optimierung fällig ist)
-cd /home/ubuntu/dbot && .venv/bin/python3 master_runner.py
+cd ~/dbot && .venv/bin/python3 master_runner.py
 ```
 
 ### Optimizer-Logs überwachen
 
 ```bash
 # Optimizer-Log live mitverfolgen
-tail -f /home/ubuntu/dbot/logs/optimizer_output.log
+tail -f ~/dbot/logs/optimizer_output.log
 
 # Letzte 50 Zeilen des Optimizer-Logs anzeigen
-tail -50 /home/ubuntu/dbot/logs/optimizer_output.log
+tail -50 ~/dbot/logs/optimizer_output.log
 ```
 
 ### Optimierungsergebnisse ansehen
 
 ```bash
 # Beste gefundene Parameter anzeigen (erste 50 Zeilen)
-cat /home/ubuntu/dbot/artifacts/results/optimization_results.json | head -50
+cat ~/dbot/artifacts/results/optimization_results.json | head -50
 ```
 
 ### Optimizer-Prozess überwachen
