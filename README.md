@@ -235,17 +235,74 @@ chmod +x run_pipeline.sh run_pipeline_automated.sh
 ---
 
 ## 📊 Monitoring & Status
-- `show_status.sh`: Übersicht aktiver Strategien, Balances, offene Positionen
-- `show_results.sh`: Performance/Trades anzeigen
-- Logs tailen: `tail -f logs/cron.log`
+
+### Status-Dashboard
+
+```bash
+# Einmalig ausführbar machen
+chmod +x show_status.sh
+
+# Status anzeigen
+./show_status.sh
+```
+
+### Trading-Ergebnisse anzeigen
+
+```bash
+# Einmalig ausführbar machen
+chmod +x show_results.sh
+
+# Ergebnisse anzeigen
+./show_results.sh
+```
+
+### Log-Files
+
+```bash
+# Live-Trading Logs
+tail -f logs/cron.log
+
+# Fehler-Logs
+tail -f logs/error.log
+
+# Strategie-Logs
+tail -n 100 logs/dbot_BTCUSDTUSDT_4h.log
+```
 
 ---
 
-## 🛠️ Wartung
-- Housekeeper in `trade_manager` schließt verwaiste Orders/Positions
-- Trade-Lock verhindert sofortige Re-Entries
-- `update.sh`: Pull & Neustart-Helfer
-- `logs/` regelmäßig rotieren/prüfen
+## 🛠️ Wartung & Pflege
+
+### Logs ansehen
+
+```bash
+tail -f logs/cron.log
+tail -n 200 logs/cron.log
+grep -i "ERROR" logs/cron.log
+```
+
+### Bot aktualisieren
+
+```bash
+chmod +x update.sh
+bash ./update.sh
+```
+
+### 🔧 Config-Management
+
+#### Konfigurationsdateien löschen
+
+Bei Bedarf können alle generierten Konfigurationen gelöscht werden:
+
+```bash
+rm -f src/dbot/strategy/configs/config_*.json
+```
+
+#### Löschung verifizieren
+
+```bash
+ls -la src/dbot/strategy/configs/config_*.json 2>&1 || echo "✅ Alle Konfigurationsdateien wurden gelöscht"
+```
 
 ---
 
