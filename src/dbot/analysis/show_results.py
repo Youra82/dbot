@@ -556,7 +556,8 @@ def main():
     elif args.mode == 3:
         run_auto_portfolio_optimizer(start_capital, start_date, end_date)
     elif args.mode == 4:
-        run_live_status(start_date, end_date)
+        from dbot.analysis.interactive_status import run as run_interactive
+        run_interactive(start_capital, start_date, end_date)
 
 
 if __name__ == "__main__":

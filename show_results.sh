@@ -28,7 +28,7 @@ echo -e "${YELLOW}Wähle einen Analyse-Modus für dbot (LSTM):${NC}"
 echo "  1) Einzel-Analyse                — Backtest jeder trainierten Strategie"
 echo "  2) Manuelle Portfolio-Simulation — Du wählst das Team"
 echo "  3) Auto Portfolio-Optimierung    — Der Bot wählt das beste Team"
-echo "  4) Live-Status                   — Aktuelle Tracker-Dateien & Performance-Stats"
+echo "  4) Interaktive Charts            — OHLCV + LSTM Signale + Equity Curve (HTML)"
 read -p "Auswahl (1-4) [Standard: 1]: " MODE
 MODE=${MODE:-1}
 
