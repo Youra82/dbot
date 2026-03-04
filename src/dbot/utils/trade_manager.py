@@ -20,6 +20,16 @@ from dbot.utils.telegram import send_message
 from dbot.utils.exchange import Exchange
 from dbot.strategy.lstm_logic import get_lstm_signal
 
+
+def _dynamic_rr(confidence: float, threshold: float, rr_min: float = 1.5, rr_max: float = 3.0) -> float:
+    """Skaliert R:R linear zwischen rr_min und rr_max basierend auf LSTM-Konfidenz."""
+    conf_range = 1.0 - threshold
+    if conf_range <= 0:
+        return rr_min
+    t = (confidence - threshold) / conf_range
+    t = max(0.0, min(1.0, t))
+    return rr_min + t * (rr_max - rr_min)
+
 # --- Performance Tracking ---
 
 def update_performance_stats(tracker_file_path, trade_result, logger):
@@ -353,6 +363,17 @@ def manage_existing_position(exchange: Exchange, position: dict, lstm_signal: di
     avg_entry_price = float(avg_entry_str)
 
     sl_pct = risk_params['stop_loss_pct'] / 100.0
+    model_cfg = params.get('model', {})
+    rr_min = model_cfg.get('rr_min', 1.5)
+    rr_max = model_cfg.get('rr_max', 3.0)
+    long_threshold = model_cfg.get('long_threshold', 0.55)
+    short_threshold = model_cfg.get('short_threshold', 0.55)
+
+    # Konfidenz aus aktuellem LSTM-Signal nutzen (falls vorhanden), sonst Fallback auf Mittelwert R:R
+    confidence = lstm_signal.get('confidence', 0.0)
+    threshold = long_threshold if pos_side == 'long' else short_threshold
+    rr = _dynamic_rr(confidence, threshold, rr_min, rr_max) if confidence > threshold else (rr_min + rr_max) / 2.0
+
     new_sl_ids = []
     new_tp_ids = []
 
@@ -361,13 +382,13 @@ def manage_existing_position(exchange: Exchange, position: dict, lstm_signal: di
             sl_price = avg_entry_price * (1 - sl_pct)
             sl_side = 'sell'
             sl_distance = avg_entry_price - sl_price
-            tp_price = avg_entry_price + (2 * sl_distance)
+            tp_price = avg_entry_price + (rr * sl_distance)
             tp_side = 'sell'
         else:
             sl_price = avg_entry_price * (1 + sl_pct)
             sl_side = 'buy'
             sl_distance = sl_price - avg_entry_price
-            tp_price = avg_entry_price - (2 * sl_distance)
+            tp_price = avg_entry_price - (rr * sl_distance)
             tp_side = 'buy'
 
         if not tp_exists and sl_price > 0:
@@ -424,6 +445,11 @@ def place_entry_orders(exchange: Exchange, lstm_signal: dict, params: dict, bala
     leverage = risk_params['leverage']
     risk_per_entry_pct = risk_params.get('risk_per_entry_pct', 1.0)
     sl_pct = risk_params['stop_loss_pct'] / 100.0
+    model_cfg = params.get('model', {})
+    rr_min = model_cfg.get('rr_min', 1.5)
+    rr_max = model_cfg.get('rr_max', 3.0)
+    long_threshold = model_cfg.get('long_threshold', 0.55)
+    short_threshold = model_cfg.get('short_threshold', 0.55)
 
     # Risiko-Reduktion bei schlechter Performance
     reduce_risk, risk_reason = should_reduce_risk(tracker_file_path)
@@ -438,10 +464,12 @@ def place_entry_orders(exchange: Exchange, lstm_signal: dict, params: dict, bala
 
     current_price = lstm_signal['entry_price']
     confidence = lstm_signal.get('confidence', 0.5)
+    threshold = long_threshold if side == 'long' else short_threshold
+    rr = _dynamic_rr(confidence, threshold, rr_min, rr_max)
 
     logger.info(
         f"LSTM Entry: {side.upper()} @ {current_price:.4f} | "
-        f"Confidence: {confidence:.3f} | Leverage: {leverage}x | Capital: {risk_base_capital:.2f} USDT"
+        f"Confidence: {confidence:.3f} | R:R 1:{rr:.2f} | Leverage: {leverage}x | Capital: {risk_base_capital:.2f} USDT"
     )
 
     # Positionsgröße berechnen
@@ -485,12 +513,12 @@ def place_entry_orders(exchange: Exchange, lstm_signal: dict, params: dict, bala
         entry_trigger = current_price * (1 + trigger_delta)
         entry_limit = current_price * (1 + trigger_delta * 2)
 
-    # SL und TP aus Signal
+    # SL und TP — TP dynamisch via Konfidenz-basiertem R:R
     sl_price = lstm_signal.get('sl_price') or (
         current_price * (1 - sl_pct) if side == 'long' else current_price * (1 + sl_pct)
     )
-    tp_price = lstm_signal.get('tp_price') or (
-        current_price + 2 * sl_distance_price if side == 'long' else current_price - 2 * sl_distance_price
+    tp_price = (
+        current_price + rr * sl_distance_price if side == 'long' else current_price - rr * sl_distance_price
     )
 
     new_sl_ids = []

@@ -141,6 +141,9 @@ def create_objective(df_val, predictor, base_config, start_capital, mode, max_dr
         stop_loss_pct = trial.suggest_float('stop_loss_pct', 0.5, 5.0)
         leverage = trial.suggest_int('leverage', 1, 10)
         risk_per_entry_pct = trial.suggest_float('risk_per_entry_pct', 0.5, 3.0)
+        rr_min = trial.suggest_float('rr_min', 1.0, 2.5)
+        rr_spread = trial.suggest_float('rr_spread', 0.5, 2.5)  # rr_max = rr_min + rr_spread
+        rr_max = rr_min + rr_spread
 
         config = {
             'market': base_config['market'],
@@ -148,6 +151,8 @@ def create_objective(df_val, predictor, base_config, start_capital, mode, max_dr
                 **base_config.get('model', {}),
                 'long_threshold': long_threshold,
                 'short_threshold': short_threshold,
+                'rr_min': rr_min,
+                'rr_max': rr_max,
             },
             'risk': {
                 'stop_loss_pct': stop_loss_pct,
@@ -198,12 +203,17 @@ def save_best_config(symbol, timeframe, best_params, base_config, metrics):
     safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
     config_path = os.path.join(configs_dir, f"config_{safe_name}_lstm.json")
 
+    rr_min = best_params['rr_min']
+    rr_max = rr_min + best_params['rr_spread']
+
     config = {
         'market': {'symbol': symbol, 'timeframe': timeframe},
         'model': {
             **base_config.get('model', {}),
             'long_threshold': round(best_params['long_threshold'], 4),
             'short_threshold': round(best_params['short_threshold'], 4),
+            'rr_min': round(rr_min, 2),
+            'rr_max': round(rr_max, 2),
         },
         'risk': {
             'stop_loss_pct': round(best_params['stop_loss_pct'], 2),
@@ -291,6 +301,8 @@ def run_optimizer(
         'sequence_length': seq_len,
         'horizon_candles': horizon,
         'neutral_zone_pct': neutral_zone_pct,
+        'rr_min': 1.5,
+        'rr_max': 3.0,
     })
 
     # 6. Optuna Optimierung (kein Re-Training pro Trial)
@@ -306,12 +318,16 @@ def run_optimizer(
     logger.info(f"Beste Trial: Calmar={best_trial.value:.3f} | Params: {best_trial.params}")
 
     # 7. Finaler Backtest mit besten Parametern
+    best_rr_min = best_trial.params['rr_min']
+    best_rr_max = best_rr_min + best_trial.params['rr_spread']
     best_config_tmp = {
         'market': {'symbol': symbol, 'timeframe': timeframe},
         'model': {
             **base_config.get('model', {}),
             'long_threshold': best_trial.params['long_threshold'],
             'short_threshold': best_trial.params['short_threshold'],
+            'rr_min': best_rr_min,
+            'rr_max': best_rr_max,
         },
         'risk': {
             'stop_loss_pct': best_trial.params['stop_loss_pct'],

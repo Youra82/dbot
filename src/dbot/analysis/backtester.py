@@ -23,6 +23,16 @@ FEE_PCT = 0.0006     # 0.06% Taker-Fee
 SLIPPAGE_PCT = 0.0005  # 0.05% Slippage
 
 
+def _dynamic_rr(confidence: float, threshold: float, rr_min: float = 1.5, rr_max: float = 3.0) -> float:
+    """Skaliert R:R linear zwischen rr_min und rr_max basierend auf LSTM-Konfidenz."""
+    conf_range = 1.0 - threshold
+    if conf_range <= 0:
+        return rr_min
+    t = (confidence - threshold) / conf_range
+    t = max(0.0, min(1.0, t))
+    return rr_min + t * (rr_max - rr_min)
+
+
 def run_backtest(
     df: pd.DataFrame,
     predictor: LSTMPredictor,
@@ -48,6 +58,8 @@ def run_backtest(
 
     long_threshold = model_cfg.get('long_threshold', 0.55)
     short_threshold = model_cfg.get('short_threshold', 0.55)
+    rr_min = model_cfg.get('rr_min', 1.5)
+    rr_max = model_cfg.get('rr_max', 3.0)
     sl_pct = risk_cfg['stop_loss_pct'] / 100.0
     leverage = risk_cfg.get('leverage', 5)
     risk_per_entry_pct = risk_cfg.get('risk_per_entry_pct', 1.0)
@@ -167,15 +179,19 @@ def run_backtest(
             if amount * current_price < 5.0:
                 continue
 
-            # Einstiegskosten (Slippage)
+            # Einstiegskosten (Slippage) + dynamisches R:R
+            confidence = float(row['long_prob']) if side == 'long' else float(row['short_prob'])
+            threshold = long_threshold if side == 'long' else short_threshold
+            rr = _dynamic_rr(confidence, threshold, rr_min, rr_max)
+
             if side == 'long':
                 entry_price = current_price * (1 + SLIPPAGE_PCT)
                 sl_price = entry_price * (1 - sl_pct)
-                tp_price = entry_price + 2 * (entry_price - sl_price)
+                tp_price = entry_price + rr * (entry_price - sl_price)
             else:
                 entry_price = current_price * (1 - SLIPPAGE_PCT)
                 sl_price = entry_price * (1 + sl_pct)
-                tp_price = entry_price - 2 * (sl_price - entry_price)
+                tp_price = entry_price - rr * (sl_price - entry_price)
 
             position = {
                 'side': side,

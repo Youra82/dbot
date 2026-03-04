@@ -13,6 +13,21 @@ logger = logging.getLogger(__name__)
 _predictor_cache: dict = {}
 
 
+def _dynamic_rr(confidence: float, threshold: float, rr_min: float = 1.5, rr_max: float = 3.0) -> float:
+    """
+    Skaliert R:R linear zwischen rr_min und rr_max basierend auf LSTM-Konfidenz.
+
+    confidence = threshold  →  rr_min  (gerade über Threshold)
+    confidence = 1.0        →  rr_max  (maximale Sicherheit)
+    """
+    conf_range = 1.0 - threshold
+    if conf_range <= 0:
+        return rr_min
+    t = (confidence - threshold) / conf_range
+    t = max(0.0, min(1.0, t))
+    return rr_min + t * (rr_max - rr_min)
+
+
 def _get_predictor(model_path: str, scaler_path: str, seq_len: int) -> LSTMPredictor:
     """Lädt Predictor aus Cache oder Festplatte."""
     key = (model_path, scaler_path)
@@ -53,6 +68,8 @@ def get_lstm_signal(df: pd.DataFrame, config: dict, artifacts_dir: str) -> dict:
     seq_len = model_cfg.get('sequence_length', 60)
     long_threshold = model_cfg.get('long_threshold', 0.55)
     short_threshold = model_cfg.get('short_threshold', 0.55)
+    rr_min = model_cfg.get('rr_min', 1.5)
+    rr_max = model_cfg.get('rr_max', 3.0)
     sl_pct = risk_cfg['stop_loss_pct'] / 100.0
 
     # Modell und Scaler Pfade
@@ -111,17 +128,21 @@ def get_lstm_signal(df: pd.DataFrame, config: dict, artifacts_dir: str) -> dict:
     else:
         regime = 'LSTM_LOW_CONF'
 
-    # SL/TP berechnen (1:2 Risk:Reward)
+    # SL/TP berechnen (dynamisches R:R basierend auf LSTM-Konfidenz)
     sl_price = None
     tp_price = None
-    if side == 'long':
-        sl_price = current_price * (1 - sl_pct)
-        sl_distance = current_price - sl_price
-        tp_price = current_price + (2 * sl_distance)
-    elif side == 'short':
-        sl_price = current_price * (1 + sl_pct)
-        sl_distance = sl_price - current_price
-        tp_price = current_price - (2 * sl_distance)
+    if side is not None:
+        threshold = long_threshold if side == 'long' else short_threshold
+        rr = _dynamic_rr(confidence, threshold, rr_min, rr_max)
+        if side == 'long':
+            sl_price = current_price * (1 - sl_pct)
+            sl_distance = current_price - sl_price
+            tp_price = current_price + (rr * sl_distance)
+        else:
+            sl_price = current_price * (1 + sl_pct)
+            sl_distance = sl_price - current_price
+            tp_price = current_price - (rr * sl_distance)
+        logger.debug(f"Dynamisches R:R: confidence={confidence:.3f} | threshold={threshold:.3f} | R:R=1:{rr:.2f}")
 
     result = {
         'side': side,
