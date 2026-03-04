@@ -23,7 +23,7 @@ DBot ist ein Deep-Learning Trading-Bot, der ein LSTM-Netzwerk (Long Short-Term M
 ### 🧭 Trading-Logik (Kurzfassung)
 - **LSTM-Klassifikation**: Das Netzwerk gibt drei Wahrscheinlichkeiten aus (Long / Neutral / Short) — gehandelt wird, wenn eine Richtung den konfigurierten Threshold überschreitet
 - **Feature Engineering**: 12 normalisierte Features (RSI, MACD, Bollinger, ATR, ADX, EMA-Abstände, Volume-Ratio, etc.) als Sliding-Window-Sequenz
-- **Vollautomatische Pipeline**: `run_pipeline.sh` erledigt alles in einem Schritt — LSTM einmalig trainieren, danach Signal-Thresholds + Risiko-Parameter via Optuna optimieren (kein Re-Training pro Trial)
+- **Vollautomatische Pipeline**: `run_pipeline.sh` erledigt alles — Daten laden, LSTM trainieren, Grid-Suche über Horizon × Neutral-Zone (9 Kombinationen), beste Thresholds + Risikoparameter via Optuna optimieren, settings.json aktualisieren
 - **Risk Engine**: Risiko-basierte Positionsgröße (% vom Startkapital / SL-Distanz), dynamisches R:R basierend auf LSTM-Konfidenz (rr_min bis rr_max, Optuna-optimiert), Stop-Loss + Take-Profit als Trigger-Market-Orders
 - **Cooldown**: Nach einem Stop-Loss bleibt der Bot im Cooldown bis das LSTM die Gegenrichtung signalisiert
 - **Execution**: CCXT für Bitget Futures (USDT-Margin, Isolated)
@@ -73,6 +73,7 @@ Label 2 = SHORT   → return_pct < -neutral_zone%
 - ✅ Klassen-gewichtete Loss-Funktion (ausgeglichen bei ungleicher Label-Verteilung)
 - ✅ Early Stopping + Learning-Rate-Scheduler
 - ✅ Walk-Forward Split (Train / Val / Test — kein Lookahead-Bias)
+- ✅ Automatische Grid-Suche: Horizon × Neutral-Zone (9 Kombinationen, beste gewinnt)
 - ✅ Predictor-Caching: Modell wird nur einmal pro Session geladen
 
 ### Trading Features
@@ -100,10 +101,10 @@ Label 2 = SHORT   → return_pct < -neutral_zone%
 ## 📋 Systemanforderungen
 
 ### Hardware
-- **CPU**: Multi-Core (Training auf CPU möglich, ~5–15 Min für 50 Epochen)
+- **CPU**: Multi-Core (Training auf CPU möglich, ~1–5 Min für 50 Epochen mit Early Stopping)
 - **RAM**: Minimum 2 GB, empfohlen 4 GB+
-- **Speicher**: 1–2 GB (PyTorch + Modelle)
-- **GPU**: Optional — automatisch genutzt wenn CUDA verfügbar
+- **Speicher**: 6–8 GB mit CUDA / ~600 MB CPU-only (PyTorch + Dependencies)
+- **GPU**: Optional — automatisch genutzt wenn CUDA verfügbar (10–50x schneller)
 
 ### Software
 - **OS**: Linux (Ubuntu 20.04+), macOS, Windows 10/11
@@ -135,9 +136,12 @@ Das Install-Script:
 - ✅ Erstellt alle Verzeichnisse (`artifacts/models/`, `logs/`, `data/`, etc.)
 - ✅ Prüft PyTorch-Installation
 
+> **Hinweis**: Auf GPU-Systemen lädt PyTorch alle CUDA-Libraries (~4 GB Download). Auf reinen CPU-VPS empfiehlt sich die CPU-only Variante: `pip install torch --index-url https://download.pytorch.org/whl/cpu`
+
 ### 3. API-Credentials konfigurieren
 
 ```bash
+cp secret.json.example secret.json
 nano secret.json
 ```
 
@@ -189,7 +193,7 @@ nano secret.json
 
 ## 🔁 Interaktive Pipeline
 
-Die komplette Workflow wird durch `run_pipeline.sh` abgebildet — von Datenabruf bis zur fertigen Config:
+Die komplette Workflow wird durch `run_pipeline.sh` abgebildet — von Datenabruf bis zur fertigen Config und automatischer `settings.json`-Aktualisierung:
 
 ```bash
 ./run_pipeline.sh
@@ -197,51 +201,76 @@ Die komplette Workflow wird durch `run_pipeline.sh` abgebildet — von Datenabru
 
 ### Was die Pipeline macht
 
-`run_pipeline.sh` ruft intern nur **einen** Prozess auf — `optimizer.py` — der alles erledigt:
+`run_pipeline.sh` führt für jedes Symbol/Zeitfenster eine **automatische Grid-Suche** durch:
 
 ```
-Ein Aufruf: optimizer.py
+run_pipeline.sh
   ─────────────────────────────────────────────────────────────
-  1. Daten laden
-     → OHLCV von Bitget (oder aus Cache wenn < 24h alt)
-     → Chronologischer Split: 80% Training | 20% Optuna-Validierung
+  Für jedes Symbol × Zeitfenster:
 
-  2. LSTM Training (einmalig — nur auf den 80% Trainingsdaten)
-     → 12 technische Features berechnen (RSI, MACD, ATR, ADX, ...)
-     → Labels erstellen (Long / Neutral / Short via horizon + neutral_zone)
-     → RobustScaler fitten (nur auf Trainingsdaten — kein Lookahead!)
-     → LSTM trainieren: Early Stopping, LR-Scheduler, klassen-gewichtete Loss
-     → Modell speichern: artifacts/models/BTCUSDTUSDT_4h.pt
-     → Scaler speichern: artifacts/models/BTCUSDTUSDT_4h_scaler.pkl
+  Grid-Suche: 3 Horizonte (3, 5, 10 Kerzen)
+            × 3 Neutral-Zonen (0.2%, 0.3%, 0.5%)
+            = 9 Kombinationen (automatisch)
 
-  3. Optuna Optimierung (KEIN Re-Training pro Trial!)
-     → Vortrainiertes Modell laden (1x für alle Trials)
-     → Optuna optimiert auf den 20% Validierungsdaten:
-        long_threshold, short_threshold, stop_loss_pct, leverage, risk_per_entry_pct, rr_min, rr_max
-     → Jeder Trial: Backtest in Sekunden — kein Training!
-     → Beste Config speichern: src/dbot/strategy/configs/config_BTCUSDTUSDT_4h_lstm.json
+  Pro Kombination → optimizer.py:
+
+    1. Daten laden
+       → OHLCV von Bitget (oder aus Cache wenn < 24h alt)
+       → Kerzen-Limit automatisch: 5m/15m=2500 | 1h=2000 | 4h=1500 | 1d=1000
+       → Chronologischer Split: 80% Training | 20% Optuna-Validierung
+
+    2. LSTM Training (50 Epochen, Early Stopping)
+       → 12 Features berechnen, Labels erstellen, RobustScaler fitten
+       → Modell speichern: artifacts/models/BTCUSDTUSDT_4h.pt
+
+    3. Optuna Optimierung (kein Re-Training pro Trial!)
+       → long_threshold, short_threshold, stop_loss_pct,
+         leverage, risk_per_entry_pct, rr_min, rr_max
+       → Beste Config speichern: configs/config_BTCUSDTUSDT_4h_lstm.json
+
+  → Kombination mit bestem Calmar-Ratio gewinnt
+  → settings.json wird automatisch aktualisiert
   ─────────────────────────────────────────────────────────────
 ```
 
 ### Interaktive Eingaben
 
 ```
-Handelspaar(e) (ohne /USDT:USDT, z.B. BTC ETH): BTC
+Alte Konfigurationen löschen? (j/n): n
+
+Handelspaar(e) (ohne /USDT:USDT, z.B. BTC ETH): BTC ETH
 Zeitfenster (z.B. 1h 4h): 4h
-Anzahl Kerzen (limit) [2000]: 2000
+
 Startkapital USDT [1000]: 1000
-LSTM Training-Epochen [50]: 50
 Anzahl Optuna-Trials [100]: 100
-Vorhersage-Horizont (Kerzen) [5]: 5
-Neutrale Zone % [0.3]: 0.3
-Vorhandene Modelle überschreiben? (j/n): n
-Optimierungs-Modus (1=Streng / 2=Beste): 1
+
+Optimierungs-Modus:
+  1) Strenger Modus   (Calmar + Constraints: DD, Win-Rate, PnL)
+  2) Finde das Beste  (Max Calmar, nur DD-Constraint)
+Auswahl: 1
 Max Drawdown % [30]: 30
 Min Win-Rate % [0]: 0
 Min PnL % [0]: 0
 ```
 
-Am Ende fragt die Pipeline optional, ob `settings.json` automatisch mit den neuen Strategien aktualisiert werden soll (analog zu ltbbot).
+> **Automatisch (kein Prompt):** Kerzen-Limit, Epochen (fest: 50), Horizon, Neutral-Zone, Neutraining, settings.json-Update
+
+### Beispiel-Ausgabe (Grid-Suche)
+
+```
+Pipeline für: BTC/USDT:USDT (4h) | Limit: 1500 Kerzen
+Grid-Suche: 3 Horizonte × 3 Zonen = 9 Kombinationen
+
+[1/9] Testing horizon=3 | neutral_zone=0.2%
+[2/9] Testing horizon=3 | neutral_zone=0.3%
+  ✔ Neue beste Kombination! horizon=3 | neutral_zone=0.3% | Calmar=2.84
+[3/9] Testing horizon=3 | neutral_zone=0.5%
+...
+[7/9] Testing horizon=10 | neutral_zone=0.2%
+  ✔ Neue beste Kombination! horizon=10 | neutral_zone=0.2% | Calmar=3.41
+...
+✔ Beste Config gespeichert: BTC/USDT:USDT (4h) | Calmar=3.41
+```
 
 ### Generierte Konfiguration
 
@@ -252,8 +281,8 @@ Nach der Pipeline liegt in `src/dbot/strategy/configs/`:
     "market": {"symbol": "BTC/USDT:USDT", "timeframe": "4h"},
     "model": {
         "sequence_length": 60,
-        "horizon_candles": 5,
-        "neutral_zone_pct": 0.3,
+        "horizon_candles": 10,
+        "neutral_zone_pct": 0.2,
         "long_threshold": 0.58,
         "short_threshold": 0.61,
         "rr_min": 1.4,
@@ -271,7 +300,7 @@ Nach der Pipeline liegt in `src/dbot/strategy/configs/`:
         "win_rate": 54.0,
         "pnl_pct": 42.3,
         "max_drawdown_pct": 14.1,
-        "calmar_ratio": 2.99
+        "calmar_ratio": 3.41
     }
 }
 ```
@@ -286,13 +315,13 @@ Bevor der Live-Bot gestartet wird:
 
 1. ✅ `./run_pipeline.sh` erfolgreich abgeschlossen (Modell + Config vorhanden)
 2. ✅ `./show_results.sh` → Modus 1 → Backtest-Ergebnisse geprüft
-3. ✅ `settings.json` → `active: true` gesetzt (oder am Pipeline-Ende automatisch übernehmen)
+3. ✅ `settings.json` → `active: true` gesetzt (oder am Pipeline-Ende automatisch übernommen)
 4. ✅ `secret.json` mit echten API-Keys ausgefüllt
 
 ### Manueller Start (Test)
 
 ```bash
-cd /home/ubuntu/dbot && .venv/bin/python3 master_runner.py
+cd /root/dbot && .venv/bin/python3 master_runner.py
 ```
 
 ### Automatischer Start (Cronjob)
@@ -303,11 +332,11 @@ crontab -e
 
 ```
 # DBot Master-Runner alle 15 Minuten
-*/15 * * * * /usr/bin/flock -n /home/ubuntu/dbot/dbot.lock /bin/sh -c "cd /home/ubuntu/dbot && .venv/bin/python3 master_runner.py >> /home/ubuntu/dbot/logs/cron.log 2>&1"
+*/15 * * * * /usr/bin/flock -n /root/dbot/dbot.lock /bin/sh -c "cd /root/dbot && .venv/bin/python3 master_runner.py >> /root/dbot/logs/cron.log 2>&1"
 ```
 
 ```bash
-mkdir -p /home/ubuntu/dbot/logs
+mkdir -p /root/dbot/logs
 ```
 
 ### Was der Master Runner macht
@@ -323,7 +352,7 @@ mkdir -p /home/ubuntu/dbot/logs
 ### Einzelne Strategie manuell ausführen
 
 ```bash
-cd /home/ubuntu/dbot
+cd /root/dbot
 PYTHONPATH=src .venv/bin/python3 src/dbot/strategy/run.py --symbol BTC/USDT:USDT --timeframe 4h
 ```
 
@@ -335,32 +364,76 @@ PYTHONPATH=src .venv/bin/python3 src/dbot/strategy/run.py --symbol BTC/USDT:USDT
 ./show_results.sh
 ```
 
+Alle 4 Modi fragen zuerst **Startdatum, Enddatum und Startkapital** ab (wie jaegerbot/stbot):
+
+```
+--- Konfiguration ---
+Startdatum (JJJJ-MM-TT) [Standard: 2022-01-01]: 2024-01-01
+Enddatum   (JJJJ-MM-TT) [Standard: Heute]:
+Startkapital USDT         [Standard: 1000]: 15
+Zeitraum: 2024-01-01 → 2026-03-04 | Kapital: 15 USDT
+```
+
 ### 4 Analyse-Modi
 
 | Modus | Beschreibung |
 |-------|-------------|
-| **1** | **Einzel-Analyse** — Backtest jeder trainierten Strategie isoliert (Trades, Win-Rate, PnL, Calmar) |
-| **2** | **Portfolio-Simulation** — Kapital gleichmäßig aufteilen, Gesamt-PnL aller Strategien kombiniert |
-| **3** | **Modell-Info** — LSTM-Architektur, Val-Accuracy, Prediction-Verteilung, aktuelles Signal |
-| **4** | **Live-Status** — Tracker-Dateien, Cooldown-Status, Performance-Stats, letzte Log-Einträge |
+| **1** | **Einzel-Analyse** — Backtest jeder trainierten Strategie isoliert im gewählten Zeitraum |
+| **2** | **Portfolio-Simulation** — Manuelle Strategie-Auswahl, Kapital aufteilen, Gesamt-Performance |
+| **3** | **Modell-Info** — LSTM-Architektur, Trainingsdatum, Val-Accuracy, Prediction-Verteilung, aktuelles Signal |
+| **4** | **Live-Status** — Tracker-Dateien, Cooldown-Status, Performance-Stats, Log-Einträge gefiltert nach Datum |
 
-### Modus 3 — Beispielausgabe (Modell-Info)
+### Modus 1 — Einzel-Analyse
+
+```
+Strategie           Zeitraum                  Trades  Win-Rate  PnL %  Max DD %  Calmar  Endkapital
+BTC/USDT:USDT (4h)  2024-01-01 → 2026-03-04      87     54.0%  +42.3%    14.1%    3.41  1423 USDT
+ETH/USDT:USDT (4h)  2024-01-01 → 2026-03-04      63     51.6%  +18.7%    11.2%    1.67  1187 USDT
+```
+
+### Modus 2 — Portfolio-Simulation
+
+Manuelle Strategie-Auswahl (wie stbot):
+
+```
+Verfügbare Strategien:
+  1) BTC/USDT:USDT (4h) ✓
+  2) ETH/USDT:USDT (4h) ✓
+  3) XRP/USDT:USDT (4h) ✓
+
+Welche Strategien simulieren? (Zahlen mit Komma, z.B. 1,2 oder 'alle'): 1,2
+
+--- Portfolio-Gesamt ---
+Zeitraum:          2024-01-01 bis 2026-03-04
+Startkapital:      1000.00 USDT
+Endkapital:        1305.00 USDT
+Gesamt PnL:        +305.00 USDT (+30.5%)
+Anzahl Trades:     150
+Win-Rate:          52.7%
+Portfolio Max DD:  14.1%
+Liquidiert:        NEIN
+```
+
+### Modus 3 — Modell-Info
+
 ```
 ── BTC/USDT:USDT (4h) ──
-LSTM: hidden=128 | layers=2 | features=12
-Trainiert: seq_len=60 | horizon=5 | neutral_zone=0.3%
-Val Accuracy: 58.4%
+LSTM:     hidden=128 | layers=2 | features=12
+Training: seq_len=60 | horizon=10 | neutral_zone=0.2%
+Datum:    2026-03-04 18:33
+Val Acc:  46.9%
 
-Signal-Verteilung (450 Kerzen):
-  LONG:    112 (24.9%) | Threshold: 0.58
-  NEUTRAL: 241 (53.6%)
-  SHORT:    97 (21.6%) | Threshold: 0.61
+Signale (1388 Kerzen bis 2026-03-04 00:00 UTC):
+  LONG:    310 (22.3%) | Threshold: 0.7873
+  NEUTRAL: 568 (40.9%)
+  SHORT:   510 (36.7%) | Threshold: 0.4501
 
-Aktuelles Signal: LONG (p=0.631)
-Optimizer-Ergebnis: PnL=+42.3% | DD=14.1% | Calmar=2.99 | Trades=87
+Signal jetzt: SHORT (p=0.934)
+Optimizer: PnL=+42.3% | DD=14.1% | Calmar=3.41 | Trades=87
 ```
 
-### Modus 4 — Beispielausgabe (Live-Status)
+### Modus 4 — Live-Status
+
 ```
 ── BTC-USDT-USDT_4h ──
 Status:       ok_to_trade
@@ -383,11 +456,11 @@ dbot/
 │       │   └── predictor.py           # Live-Inference mit Caching
 │       ├── strategy/                  # Trading-Logik
 │       │   ├── run.py                 # Entry Point je Strategie
-│       │   ├── lstm_logic.py          # Signal aus LSTM-Probs
+│       │   ├── lstm_logic.py          # Signal aus LSTM-Probs + dyn. R:R
 │       │   └── configs/               # Generierte JSON-Configs
 │       ├── analysis/                  # Analyse & Optimierung
 │       │   ├── backtester.py          # Backtest-Engine
-│       │   ├── optimizer.py           # Optuna Threshold-Optimierung
+│       │   ├── optimizer.py           # LSTM Training + Optuna (intern)
 │       │   └── show_results.py        # 4-Modi Analyse-Tool
 │       └── utils/                     # Infrastruktur
 │           ├── exchange.py            # Bitget CCXT-Wrapper
@@ -400,17 +473,16 @@ dbot/
 │   └── tracker/                       # Per-Strategie Status-Dateien
 ├── data/                              # OHLCV-Cache (CSV)
 ├── logs/                              # Rotating Log-Files
-├── train_model.py                     # CLI: LSTM trainieren
 ├── master_runner.py                   # Cronjob-Orchestrator
 ├── auto_optimizer_scheduler.py        # Wöchentliches Re-Training
-├── run_pipeline.sh                    # Interaktive Pipeline (empfohlen)
+├── run_pipeline.sh                    # Vollautomatische Pipeline (empfohlen)
 ├── show_results.sh                    # 4-Modi Analyse
 ├── run_tests.sh                       # Pytest Sicherheitsnetz
 ├── install.sh                         # Ersteinrichtung
 ├── update.sh                          # Git-Update mit secret.json Backup
 ├── settings.json                      # Strategie-Konfiguration
 ├── secret.json                        # API-Keys (nicht committen!)
-├── secret.json.template               # Template für secret.json
+├── secret.json.example                # Template für secret.json
 └── requirements.txt                   # Python-Abhängigkeiten
 ```
 
@@ -427,36 +499,32 @@ tail -f logs/cron.log
 # Spezifische Strategie
 tail -f logs/dbot_BTCUSDTUSDT_4h.log
 
-# Training-Log
-tail -f logs/train_model.log
-
 # Nach Fehlern suchen
 grep -i "ERROR\|CRITICAL" logs/dbot_*.log
 ```
 
-### Modell manuell neu trainieren
+### Modell neu trainieren
 
 ```bash
-# Einfachste Methode: Pipeline neu starten mit Neutraining
+# Pipeline neu starten (empfohlen) — findet automatisch beste Konfiguration
 ./run_pipeline.sh
-# → "Vorhandene Modelle überschreiben? j" eingeben
 
-# Oder direkt via Optimizer (einmaliger CLI-Aufruf):
+# Oder direkt via optimizer.py:
 PYTHONPATH=src .venv/bin/python3 src/dbot/analysis/optimizer.py \
     --symbols BTC/USDT:USDT --timeframes 4h \
-    --epochs 100 --trials 200 --force-retrain
+    --epochs 50 --trials 200 --force-retrain
 ```
 
-### Modell-Cache leeren
+### Caches leeren
 
 ```bash
-# Gespeicherte Modelle löschen (erzwingt Re-Training)
+# Gespeichertes Modell löschen (erzwingt Re-Training)
 rm -f artifacts/models/BTCUSDTUSDT_4h.pt artifacts/models/BTCUSDTUSDT_4h_scaler.pkl
 
-# OHLCV-Cache leeren (neuer Download)
+# OHLCV-Cache leeren (neuer Download von Bitget)
 rm -f data/BTCUSDTUSDT_4h.csv
 
-# Optimizer-Zeitplan zurücksetzen (erzwingt wöchentliches Re-Training sofort)
+# Optimizer-Zeitplan zurücksetzen
 rm -f artifacts/results/optimizer_schedule.json
 ```
 
@@ -465,10 +533,6 @@ rm -f artifacts/results/optimizer_schedule.json
 Wenn der Bot nach einem SL im Cooldown hängt:
 
 ```bash
-# Tracker manuell zurücksetzen
-cat artifacts/tracker/BTC-USDT-USDT_4h.json
-
-# Status auf ok_to_trade setzen
 python3 -c "
 import json
 with open('artifacts/tracker/BTC-USDT-USDT_4h.json') as f:
@@ -493,7 +557,7 @@ Das Update-Script:
 - Bereinigt Python-Cache
 - Setzt Ausführungsrechte
 
-⚠️ **Hinweis**: Trainierte Modelle (`.pt`, `.pkl`) und Configs (`configs/*.json`) bleiben erhalten — sie stehen in `.gitignore` und werden nicht überschrieben.
+⚠️ **Hinweis**: Trainierte Modelle (`.pt`, `.pkl`) und Configs (`configs/*.json`) bleiben erhalten — sie stehen in `.gitignore`.
 
 ### Tests ausführen
 
@@ -524,12 +588,6 @@ rm artifacts/results/optimizer_schedule.json
 
 # Oder direkt ausführen
 PYTHONPATH=src .venv/bin/python3 auto_optimizer_scheduler.py
-```
-
-### Optimizer-Log überwachen
-
-```bash
-tail -f logs/auto_optimizer.log
 ```
 
 ### In `settings.json` konfigurieren
@@ -569,11 +627,9 @@ tail -f logs/auto_optimizer.log
 ### Performance-Tipps
 
 - 💡 Mit 1 Strategie starten und Logs beobachten
-- 💡 `show_results.sh` → Modus 3 für aktuelles Signal nutzen bevor Strategie aktiviert wird
-- 💡 `horizon_candles` und `neutral_zone_pct` je Timeframe anpassen:
-  - `4h`: horizon=5, neutral_zone=0.3
-  - `1d`: horizon=3, neutral_zone=0.5
-- 💡 Val Accuracy > 55% ist ein gutes Zeichen — unter 52% → mehr Daten oder anderen Timeframe
+- 💡 `show_results.sh` → Modus 3 für aktuelles Signal prüfen bevor Strategie aktiviert wird
+- 💡 Val Accuracy > 52% ist ein gutes Zeichen — darunter → mehr Daten oder anderen Timeframe
+- 💡 Calmar Ratio > 1.5 anstreben — darunter lohnt sich Live-Trading kaum
 - 💡 Regelmäßig `show_results.sh` → Modus 4 aufrufen um Tracker zu prüfen
 
 ---
@@ -593,14 +649,6 @@ tail -f logs/auto_optimizer.log
 git fetch origin
 git status
 ./update.sh
-```
-
-### Neue Config hochladen
-
-```bash
-git add src/dbot/strategy/configs/config_*_lstm.json
-git commit -m "Update: Neue LSTM-Konfigurationen"
-git push origin main
 ```
 
 ---
