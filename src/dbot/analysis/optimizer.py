@@ -9,6 +9,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import optuna
+from datetime import datetime
 from optuna.samplers import TPESampler
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
@@ -124,6 +125,7 @@ def _train_and_save(
         'n_features': len(FEATURE_NAMES),
         'feature_names': FEATURE_NAMES,
         'best_val_acc': max(history['val_acc']),
+        'trained_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
     })
     save_scaler(scaler, scaler_path)
     logger.info(f"Modell gespeichert: {model_path} | Beste Val Acc: {max(history['val_acc']):.4f}")

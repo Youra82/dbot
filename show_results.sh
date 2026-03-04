@@ -11,15 +11,11 @@ cd "$SCRIPT_DIR"
 VENV_PATH=".venv"
 VENV_ACTIVATE="$VENV_PATH/bin/activate"
 VENV_PYTHON="$VENV_PATH/bin/python3"
-VENV_PIP="$VENV_PATH/bin/pip"
 RESULTS_SCRIPT="src/dbot/analysis/show_results.py"
 
-# venv prüfen / neu erstellen
-if ! test -x "$VENV_PYTHON" || ! test -x "$VENV_PIP"; then
-    echo -e "${YELLOW}Virtuelle Umgebung nicht gefunden — wird erstellt...${NC}"
-    rm -rf "$VENV_PATH" 2>/dev/null || true
-    python3 -m venv "$VENV_PATH" --upgrade-deps
-    echo -e "${GREEN}Neue virtuelle Umgebung erstellt.${NC}"
+if ! test -x "$VENV_PYTHON"; then
+    echo -e "${RED}Fehler: Virtuelle Umgebung nicht gefunden. Bitte install.sh ausführen.${NC}"
+    exit 1
 fi
 
 if ! source "$VENV_ACTIVATE"; then
@@ -27,22 +23,6 @@ if ! source "$VENV_ACTIVATE"; then
     exit 1
 fi
 
-# Abhängigkeiten prüfen
-echo -e "${YELLOW}Überprüfe Python-Abhängigkeiten...${NC}"
-"$VENV_PIP" install --upgrade pip setuptools wheel --quiet 2>/dev/null || true
-
-if ! "$VENV_PYTHON" -c "import pandas, torch, optuna" 2>/dev/null; then
-    echo -e "${YELLOW}Installiere fehlende Pakete...${NC}"
-    "$VENV_PIP" install -r requirements.txt --quiet 2>/dev/null || \
-    "$VENV_PIP" install --break-system-packages -r requirements.txt --quiet 2>/dev/null || true
-    echo -e "${GREEN}Pakete installiert.${NC}"
-fi
-
-# Kapital abfragen
-read -p "Startkapital USDT [1000]: " CAPITAL
-CAPITAL=${CAPITAL:-1000}
-
-# Modus-Menü
 echo ""
 echo -e "${YELLOW}Wähle einen Analyse-Modus für dbot (LSTM):${NC}"
 echo "  1) Einzel-Analyse        — Backtest jeder trainierten Strategie"
@@ -52,9 +32,14 @@ echo "  4) Live-Status           — Aktuelle Tracker-Dateien & Performance-Stat
 read -p "Auswahl (1-4) [Standard: 1]: " MODE
 MODE=${MODE:-1}
 
+if [[ ! "$MODE" =~ ^[1-4]$ ]]; then
+    echo -e "${RED}❌ Ungültige Eingabe! Verwende Standard (1).${NC}"
+    MODE=1
+fi
+
 echo ""
 export PYTHONPATH="$SCRIPT_DIR/src"
-"$VENV_PYTHON" "$RESULTS_SCRIPT" --mode "$MODE" --capital "$CAPITAL"
+"$VENV_PYTHON" "$RESULTS_SCRIPT" --mode "$MODE"
 
 if command -v deactivate &> /dev/null; then
     deactivate
