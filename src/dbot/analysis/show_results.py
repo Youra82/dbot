@@ -3,6 +3,7 @@
 import os
 import sys
 import json
+import shutil
 import argparse
 import logging
 import pandas as pd
@@ -68,17 +69,6 @@ def load_ohlcv(symbol, timeframe, start_date=None, end_date=None, limit=2000):
 def model_exists(symbol, timeframe):
     safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
     return os.path.exists(os.path.join(PROJECT_ROOT, 'artifacts', 'models', f"{safe_name}.pt"))
-
-
-def ask_dates_and_capital():
-    print("\n--- Konfiguration ---")
-    start_date = input("Startdatum (JJJJ-MM-TT) [Standard: 2022-01-01]: ").strip() or "2022-01-01"
-    end_date = input(f"Enddatum   (JJJJ-MM-TT) [Standard: Heute]: ").strip() or datetime.now().strftime("%Y-%m-%d")
-    cap_str = input("Startkapital USDT         [Standard: 1000]: ").strip()
-    start_capital = float(cap_str) if cap_str else 1000.0
-    print(f"Zeitraum: {start_date} → {end_date} | Kapital: {start_capital:.0f} USDT")
-    print("─" * 60)
-    return start_date, end_date, start_capital
 
 
 def print_separator(char="─", width=60):
@@ -170,7 +160,7 @@ def run_single_analysis(start_capital=1000.0, start_date=None, end_date=None):
 
 
 # ─────────────────────────────────────────────────────────────
-# Modus 2: Portfolio-Simulation (manuelle Auswahl wie stbot)
+# Modus 2: Portfolio-Simulation (manuelle Auswahl)
 # ─────────────────────────────────────────────────────────────
 
 def run_portfolio_simulation(start_capital=1000.0, start_date=None, end_date=None):
@@ -295,20 +285,71 @@ def run_portfolio_simulation(start_capital=1000.0, start_date=None, end_date=Non
 
 
 # ─────────────────────────────────────────────────────────────
-# Modus 3: Modell-Info + Prediction-Verteilung
+# Modus 3: Automatische Portfolio-Optimierung (Greedy)
 # ─────────────────────────────────────────────────────────────
 
-def run_model_info():
-    print_header("Modus 3: Modell-Info & Prediction-Verteilung")
+def _portfolio_metrics(candidates, start_capital):
+    """Berechnet Portfolio-Metriken für eine Kombination (PnL skaliert linear mit Kapital)."""
+    n = len(candidates)
+    if n == 0:
+        return start_capital, 0.0, 0.0
+    scale = 1.0 / n  # Kapital wird gleichmäßig aufgeteilt
+    total_pnl = sum(s['pnl_usdt'] * scale for s in candidates)
+    portfolio_end_cap = start_capital + total_pnl
+    portfolio_dd = max(s['max_dd'] for s in candidates)
+    return portfolio_end_cap, total_pnl, portfolio_dd
+
+
+def _write_to_settings(portfolio):
+    """Schreibt das optimale Portfolio in settings.json."""
+    settings_path = os.path.join(PROJECT_ROOT, 'settings.json')
+    backup_path = settings_path + '.backup'
+    try:
+        shutil.copy(settings_path, backup_path)
+        with open(settings_path) as f:
+            settings = json.load(f)
+
+        new_strategies = [
+            {"symbol": s['symbol'], "timeframe": s['timeframe'], "active": True}
+            for s in portfolio
+        ]
+        settings.setdefault('live_trading_settings', {})['active_strategies'] = new_strategies
+
+        with open(settings_path, 'w') as f:
+            json.dump(settings, f, indent=4)
+
+        print(f"\n✅ {len(portfolio)} Strategie(n) wurden in settings.json eingetragen:")
+        for s in portfolio:
+            print(f"   - {s['symbol']} ({s['timeframe']})")
+        print(f"✅ settings.json erfolgreich aktualisiert!")
+        print(f"   Backup: settings.json.backup")
+    except Exception as e:
+        print(f"\n❌ Fehler beim Schreiben in settings.json: {e}")
+
+
+def run_auto_portfolio_optimizer(start_capital=1000.0, start_date=None, end_date=None):
+    print_header("Modus 3: Automatische Portfolio-Optimierung")
+    print(f"  Zeitraum: {start_date} bis {end_date} | Startkapital: {start_capital:.0f} USDT")
+
+    max_dd_str = input("\n  Gewünschter maximaler Drawdown in % [Standard: 30]: ").strip()
+    try:
+        target_max_dd = float(max_dd_str) if max_dd_str else 30.0
+    except ValueError:
+        print("  Ungültige Eingabe, verwende Standard: 30%")
+        target_max_dd = 30.0
+    print(f"  Ziel: Maximaler Profit bei max. {target_max_dd:.0f}% Drawdown.\n")
 
     config_files = load_all_configs()
     if not config_files:
-        print("  Keine Configs gefunden.")
+        print("  Keine Configs gefunden. Bitte ./run_pipeline.sh ausführen.")
         return
 
-    import torch
     from dbot.model.predictor import LSTMPredictor
-    from dbot.model.feature_engineering import compute_features, apply_scaler
+    from dbot.analysis.backtester import run_backtest
+
+    # ── 1. Alle Strategien laden & Einzel-Backtest ──────────────
+    print("  1/3: Analysiere Einzel-Performance & filtere nach Max DD...")
+    single_results = []
 
     for config_path in config_files:
         with open(config_path) as f:
@@ -316,62 +357,111 @@ def run_model_info():
         symbol = config['market']['symbol']
         timeframe = config['market']['timeframe']
         safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
+        filename = os.path.basename(config_path)
 
-        print(f"\n  ── {symbol} ({timeframe}) ──")
+        if not model_exists(symbol, timeframe):
+            continue
 
         model_path = os.path.join(PROJECT_ROOT, 'artifacts', 'models', f"{safe_name}.pt")
         scaler_path = os.path.join(PROJECT_ROOT, 'artifacts', 'models', f"{safe_name}_scaler.pkl")
-
-        if not os.path.exists(model_path):
-            print("  Kein Modell vorhanden.")
-            continue
+        seq_len = config.get('model', {}).get('sequence_length', 60)
 
         try:
-            checkpoint = torch.load(model_path, map_location='cpu')
-            meta = checkpoint.get('metadata', {})
-            print(f"  LSTM:     hidden={checkpoint.get('hidden_size', '?')} | layers={checkpoint.get('num_layers', '?')} | features={checkpoint.get('n_features', '?')}")
-            print(f"  Training: seq_len={meta.get('seq_len', '?')} | horizon={meta.get('horizon_candles', '?')} | neutral_zone={meta.get('neutral_zone_pct', '?')}%")
-            train_date = meta.get('trained_at', None)
-            if train_date:
-                print(f"  Datum:    {train_date}")
-            print(f"  Val Acc:  {meta.get('best_val_acc', 0)*100:.1f}%")
-        except Exception as e:
-            print(f"  Metadaten nicht lesbar: {e}")
-
-        try:
-            seq_len = config.get('model', {}).get('sequence_length', 60)
             predictor = LSTMPredictor.from_files(model_path, scaler_path, seq_len)
-            df = load_ohlcv(symbol, timeframe, limit=500)
-            if df is not None and len(df) >= seq_len + 60:
-                actual_end = df.index[-1].strftime('%Y-%m-%d %H:%M')
-                feat_df = compute_features(df)
-                scaled_df = apply_scaler(feat_df, predictor.scaler)
-                all_probs = predictor.predict_batch(scaled_df)
-                long_threshold = config.get('model', {}).get('long_threshold', 0.55)
-                short_threshold = config.get('model', {}).get('short_threshold', 0.55)
-                n = len(all_probs)
-                n_long = sum(1 for p in all_probs if p[0] > long_threshold and p[0] > p[2])
-                n_short = sum(1 for p in all_probs if p[2] > short_threshold and p[2] > p[0])
-                n_neutral = n - n_long - n_short
-                print(f"  Signale ({n} Kerzen bis {actual_end} UTC):")
-                print(f"    LONG:    {n_long:4d} ({n_long/n*100:.1f}%) | Threshold: {long_threshold:.4f}")
-                print(f"    NEUTRAL: {n_neutral:4d} ({n_neutral/n*100:.1f}%)")
-                print(f"    SHORT:   {n_short:4d} ({n_short/n*100:.1f}%) | Threshold: {short_threshold:.4f}")
+            df = load_ohlcv(symbol, timeframe, start_date=start_date, end_date=end_date)
+            if df is None or len(df) < 200:
+                continue
+            metrics = run_backtest(df, predictor, config, start_capital=start_capital, verbose=False)
+            if 'error' in metrics:
+                continue
 
-                last_probs = all_probs[-1]
-                if last_probs[0] > long_threshold and last_probs[0] > last_probs[2]:
-                    last_signal = f"LONG  (p={last_probs[0]:.3f})"
-                elif last_probs[2] > short_threshold and last_probs[2] > last_probs[0]:
-                    last_signal = f"SHORT (p={last_probs[2]:.3f})"
-                else:
-                    last_signal = "NEUTRAL"
-                print(f"  Signal jetzt: {last_signal}")
+            max_dd = metrics.get('max_drawdown_pct', 100.0)
+            end_capital = metrics.get('final_capital', start_capital)
+            pnl_usdt = metrics.get('pnl_usdt', 0.0)
+            liquidated = end_capital <= 0
+
+            if not liquidated and max_dd <= target_max_dd:
+                single_results.append({
+                    'filename': filename,
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'end_capital': end_capital,
+                    'pnl_usdt': pnl_usdt,
+                    'max_dd': max_dd,
+                })
         except Exception as e:
-            logger.warning(f"Prediction-Verteilung fehlgeschlagen: {e}")
+            logger.warning(f"Fehler bei {symbol} ({timeframe}): {e}")
 
-        bt = config.get('_backtest_metrics', {})
-        if bt:
-            print(f"  Optimizer: PnL={bt.get('pnl_pct', 0):+.1f}% | DD={bt.get('max_drawdown_pct', 0):.1f}% | Calmar={bt.get('calmar_ratio', 0):.2f} | Trades={bt.get('trades', 0)}")
+    if not single_results:
+        print(f"\n  Keine Strategie erfüllt Max DD <= {target_max_dd:.0f}%. Portfolio-Optimierung nicht möglich.")
+        return
+
+    # Sortiere nach Endkapital (beste zuerst)
+    single_results.sort(key=lambda x: x['end_capital'], reverse=True)
+
+    # ── 2. Greedy: Bestes Einzel-Portfolio aufbauen ──────────────
+    best = single_results[0]
+    best_end_cap, _, best_dd = _portfolio_metrics([best], start_capital)
+    print(f"  2/3: Beste Einzelstrategie: {best['filename']} "
+          f"(Endkapital: {best_end_cap:.2f} USDT, Max DD: {best_dd:.1f}%)")
+    print("  3/3: Suche optimales Team...")
+
+    best_portfolio = [best]
+    candidate_pool = single_results[1:]
+
+    while True:
+        best_addition = None
+        current_best_cap, _, _ = _portfolio_metrics(best_portfolio, start_capital)
+
+        for candidate in candidate_pool:
+            combined = best_portfolio + [candidate]
+            new_cap, _, new_dd = _portfolio_metrics(combined, start_capital)
+            if new_dd <= target_max_dd and new_cap > current_best_cap:
+                current_best_cap = new_cap
+                best_addition = candidate
+
+        if best_addition:
+            new_cap, _, new_dd = _portfolio_metrics(best_portfolio + [best_addition], start_capital)
+            print(f"  -> Füge hinzu: {best_addition['filename']} "
+                  f"(Neues Kapital: {new_cap:.2f} USDT, Max DD: {new_dd:.1f}%)")
+            best_portfolio.append(best_addition)
+            candidate_pool.remove(best_addition)
+        else:
+            print("  Keine weitere Verbesserung des Profits "
+                  "(unter Einhaltung des Max DD) durch Hinzufügen von Strategien gefunden. "
+                  "Optimierung beendet.")
+            break
+
+    # ── Ergebnis anzeigen ────────────────────────────────────────
+    final_cap, total_pnl, portfolio_dd = _portfolio_metrics(best_portfolio, start_capital)
+    pnl_pct = total_pnl / start_capital * 100
+
+    print()
+    print("=" * 55)
+    print("     Ergebnis der automatischen Portfolio-Optimierung")
+    print("=" * 55)
+    print(f"Zeitraum:           {start_date} bis {end_date}")
+    print(f"Startkapital:       {start_capital:.2f} USDT")
+    print(f"Bedingung:          Max Drawdown <= {target_max_dd:.0f}%")
+    print(f"\nOptimales Portfolio ({len(best_portfolio)} Strategie(n)):")
+    for s in best_portfolio:
+        print(f"  - {s['filename']}")
+    print()
+    print("--- Simulierte Performance dieses Portfolios ---")
+    print(f"Endkapital:         {final_cap:.2f} USDT")
+    print(f"Gesamt PnL:         {total_pnl:+.2f} USDT ({pnl_pct:+.1f}%)")
+    print(f"Portfolio Max DD:   {portfolio_dd:.1f}%")
+    print(f"Liquidiert:         NEIN")
+    print("=" * 55)
+
+    # ── Settings.json aktualisieren? ─────────────────────────────
+    print()
+    answer = input("─" * 49 + "\nSollen die optimalen Ergebnisse automatisch in settings.json eingetragen werden? (j/n): ").strip().lower()
+    if answer in ['j', 'y', 'ja', 'yes']:
+        _write_to_settings(best_portfolio)
+    else:
+        print("\nℹ  Settings wurden NICHT aktualisiert.")
+        print("Du kannst die Strategien später manuell in settings.json eintragen.")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -425,7 +515,6 @@ def run_live_status(start_date=None, end_date=None):
         print()
         print_separator()
 
-    # Log-Zusammenfassung
     log_dir = os.path.join(PROJECT_ROOT, 'logs')
     master_log = os.path.join(log_dir, 'master_runner.log') if log_dir else None
     if master_log and os.path.exists(master_log):
@@ -433,7 +522,6 @@ def run_live_status(start_date=None, end_date=None):
         try:
             with open(master_log) as f:
                 lines = f.readlines()
-            # Datum-Filter wenn angegeben
             if start_date:
                 lines = [l for l in lines if l[:10] >= start_date]
             for line in lines[-15:]:
@@ -466,7 +554,7 @@ def main():
     elif args.mode == 2:
         run_portfolio_simulation(start_capital, start_date, end_date)
     elif args.mode == 3:
-        run_model_info()
+        run_auto_portfolio_optimizer(start_capital, start_date, end_date)
     elif args.mode == 4:
         run_live_status(start_date, end_date)
 
