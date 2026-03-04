@@ -23,7 +23,7 @@ DBot ist ein Deep-Learning Trading-Bot, der ein LSTM-Netzwerk (Long Short-Term M
 ### 🧭 Trading-Logik (Kurzfassung)
 - **LSTM-Klassifikation**: Das Netzwerk gibt drei Wahrscheinlichkeiten aus (Long / Neutral / Short) — gehandelt wird, wenn eine Richtung den konfigurierten Threshold überschreitet
 - **Feature Engineering**: 12 normalisierte Features (RSI, MACD, Bollinger, ATR, ADX, EMA-Abstände, Volume-Ratio, etc.) als Sliding-Window-Sequenz
-- **Zwei-Stufen-Ansatz**: Erst Modell trainieren (`train_model.py`) → dann Signal-Thresholds + Risiko-Parameter via Optuna optimieren (kein Re-Training pro Trial)
+- **Vollautomatische Pipeline**: `run_pipeline.sh` erledigt alles in einem Schritt — LSTM einmalig trainieren, danach Signal-Thresholds + Risiko-Parameter via Optuna optimieren (kein Re-Training pro Trial)
 - **Risk Engine**: Risiko-basierte Positionsgröße (% vom Startkapital / SL-Distanz), 1:2 R:R, Stop-Loss + Take-Profit als Trigger-Market-Orders
 - **Cooldown**: Nach einem Stop-Loss bleibt der Bot im Cooldown bis das LSTM die Gegenrichtung signalisiert
 - **Execution**: CCXT für Bitget Futures (USDT-Margin, Isolated)
@@ -172,7 +172,7 @@ nano secret.json
                 "symbol": "BTC/USDT:USDT",
                 "timeframe": "4h",
                 "active": false,
-                "note": "Erst aktivieren nach: train_model.py + optimizer.py"
+                "note": "Erst aktivieren nach: run_pipeline.sh"
             }
         ]
     }
@@ -196,39 +196,51 @@ Die komplette Workflow wird durch `run_pipeline.sh` abgebildet — von Datenabru
 
 ### Was die Pipeline macht
 
+`run_pipeline.sh` ruft intern nur **einen** Prozess auf — `optimizer.py` — der alles erledigt:
+
 ```
-Schritt 1 — LSTM Training (train_model.py)
-  → Lädt OHLCV-Daten von Bitget (oder aus Cache)
-  → Berechnet 12 technische Features
-  → Erstellt Labels (Long/Neutral/Short) via horizon + neutral_zone
-  → Fittet RobustScaler auf Trainingsdaten
-  → Trainiert LSTM (Early Stopping, LR-Scheduler)
-  → Speichert Modell: artifacts/models/BTCUSDTUSDT_4h.pt
-  → Speichert Scaler: artifacts/models/BTCUSDTUSDT_4h_scaler.pkl
+Ein Aufruf: optimizer.py
+  ─────────────────────────────────────────────────────────────
+  1. Daten laden
+     → OHLCV von Bitget (oder aus Cache wenn < 24h alt)
+     → Chronologischer Split: 80% Training | 20% Optuna-Validierung
 
-Schritt 2 — Threshold-Optimierung (optimizer.py via Optuna)
-  → Lädt gespeichertes Modell (KEIN Re-Training pro Trial!)
-  → Generiert alle Predictions auf Validierungsdaten (1x, dann gecacht)
-  → Optuna optimiert: long_threshold, short_threshold, stop_loss_pct, leverage, risk_per_entry_pct
-  → Jeder Trial: Backtest in ~Sekunden (kein Training!)
-  → Speichert beste Config: src/dbot/strategy/configs/config_BTCUSDTUSDT_4h_lstm.json
+  2. LSTM Training (einmalig — nur auf den 80% Trainingsdaten)
+     → 12 technische Features berechnen (RSI, MACD, ATR, ADX, ...)
+     → Labels erstellen (Long / Neutral / Short via horizon + neutral_zone)
+     → RobustScaler fitten (nur auf Trainingsdaten — kein Lookahead!)
+     → LSTM trainieren: Early Stopping, LR-Scheduler, klassen-gewichtete Loss
+     → Modell speichern: artifacts/models/BTCUSDTUSDT_4h.pt
+     → Scaler speichern: artifacts/models/BTCUSDTUSDT_4h_scaler.pkl
 
-Schritt 3 — Finaler Backtest
-  → Voller Backtest mit bester Config auf Out-of-Sample-Daten
-  → Report: Trades, Win-Rate, PnL%, Max Drawdown, Calmar Ratio
+  3. Optuna Optimierung (KEIN Re-Training pro Trial!)
+     → Vortrainiertes Modell laden (1x für alle Trials)
+     → Optuna optimiert auf den 20% Validierungsdaten:
+        long_threshold, short_threshold, stop_loss_pct, leverage, risk_per_entry_pct
+     → Jeder Trial: Backtest in Sekunden — kein Training!
+     → Beste Config speichern: src/dbot/strategy/configs/config_BTCUSDTUSDT_4h_lstm.json
+  ─────────────────────────────────────────────────────────────
 ```
 
 ### Interaktive Eingaben
 
 ```
-Symbol (z.B. BTC/USDT:USDT): BTC/USDT:USDT
-Timeframe (z.B. 4h): 4h
+Handelspaar(e) (ohne /USDT:USDT, z.B. BTC ETH): BTC
+Zeitfenster (z.B. 1h 4h): 4h
+Anzahl Kerzen (limit) [2000]: 2000
 Startkapital USDT [1000]: 1000
-Training-Epochen [50]: 50
-Optuna-Trials [100]: 100
-Horizont (Kerzen in die Zukunft) [5]: 5
+LSTM Training-Epochen [50]: 50
+Anzahl Optuna-Trials [100]: 100
+Vorhersage-Horizont (Kerzen) [5]: 5
 Neutrale Zone % [0.3]: 0.3
+Vorhandene Modelle überschreiben? (j/n): n
+Optimierungs-Modus (1=Streng / 2=Beste): 1
+Max Drawdown % [30]: 30
+Min Win-Rate % [0]: 0
+Min PnL % [0]: 0
 ```
+
+Am Ende fragt die Pipeline optional, ob `settings.json` automatisch mit den neuen Strategien aktualisiert werden soll (analog zu ltbbot).
 
 ### Generierte Konfiguration
 
@@ -269,11 +281,10 @@ Nach der Pipeline liegt in `src/dbot/strategy/configs/`:
 
 Bevor der Live-Bot gestartet wird:
 
-1. ✅ `train_model.py` erfolgreich ausgeführt (Modell vorhanden)
-2. ✅ `optimizer.py` erfolgreich ausgeführt (Config vorhanden)
-3. ✅ `./show_results.sh` → Modus 1 → Backtest-Ergebnisse geprüft
-4. ✅ `settings.json` → `active: true` gesetzt
-5. ✅ `secret.json` mit echten API-Keys ausgefüllt
+1. ✅ `./run_pipeline.sh` erfolgreich abgeschlossen (Modell + Config vorhanden)
+2. ✅ `./show_results.sh` → Modus 1 → Backtest-Ergebnisse geprüft
+3. ✅ `settings.json` → `active: true` gesetzt (oder am Pipeline-Ende automatisch übernehmen)
+4. ✅ `secret.json` mit echten API-Keys ausgefüllt
 
 ### Manueller Start (Test)
 
@@ -423,11 +434,14 @@ grep -i "ERROR\|CRITICAL" logs/dbot_*.log
 ### Modell manuell neu trainieren
 
 ```bash
-# Für ein einzelnes Symbol/Timeframe
-PYTHONPATH=src .venv/bin/python3 train_model.py --symbol BTC/USDT:USDT --timeframe 4h --epochs 100
+# Einfachste Methode: Pipeline neu starten mit Neutraining
+./run_pipeline.sh
+# → "Vorhandene Modelle überschreiben? j" eingeben
 
-# Nach Training optimieren
-PYTHONPATH=src .venv/bin/python3 -m dbot.analysis.optimizer --symbol BTC/USDT:USDT --timeframe 4h --trials 200
+# Oder direkt via Optimizer (einmaliger CLI-Aufruf):
+PYTHONPATH=src .venv/bin/python3 src/dbot/analysis/optimizer.py \
+    --symbols BTC/USDT:USDT --timeframes 4h \
+    --epochs 100 --trials 200 --force-retrain
 ```
 
 ### Modell-Cache leeren
@@ -496,7 +510,7 @@ Der `auto_optimizer_scheduler.py` läuft automatisch im Hintergrund wenn der Mas
 ### Verhalten
 
 - **Intervall**: 7 Tage (konfigurierbar in `settings.json`)
-- **Ablauf**: `train_model.py` → `optimizer.py` → neue Config gespeichert
+- **Ablauf**: `optimizer.py --force-retrain` → LSTM neu trainieren + neue Config speichern
 - **Zeitplan**: wird in `artifacts/results/optimizer_schedule.json` gespeichert
 
 ### Manuell triggern
