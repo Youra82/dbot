@@ -39,30 +39,8 @@ fi
 # --- Interaktive Abfrage ---
 read -p "Handelspaar(e) eingeben (ohne /USDT:USDT, z.B. BTC ETH): " SYMBOLS
 read -p "Zeitfenster eingeben (z.B. 1h 4h): " TIMEFRAMES
-
-echo -e "\n${BLUE}--- Empfehlung: Anzahl Kerzen ---${NC}"
-printf "+-------------+--------------------------------+\n"
-printf "| Zeitfenster | Empfohlene Kerzen-Anzahl       |\n"
-printf "+-------------+--------------------------------+\n"
-printf "| 5m, 15m     | 2000 - 3000                    |\n"
-printf "| 30m, 1h     | 2000 - 3000                    |\n"
-printf "| 2h, 4h      | 1500 - 2000                    |\n"
-printf "| 6h, 1d      | 1000 - 1500                    |\n"
-printf "+-------------+--------------------------------+\n"
-read -p "Anzahl Kerzen (limit) [Standard: 2000]: " LIMIT; LIMIT=${LIMIT:-2000}
-
 read -p "Startkapital in USDT [Standard: 1000]: " START_CAPITAL; START_CAPITAL=${START_CAPITAL:-1000}
-read -p "LSTM Training-Epochen [Standard: 50]: " EPOCHS; EPOCHS=${EPOCHS:-50}
 read -p "Anzahl Optuna-Trials [Standard: 100]: " N_TRIALS; N_TRIALS=${N_TRIALS:-100}
-read -p "Vorhersage-Horizont (Kerzen) [Standard: 5]: " HORIZON; HORIZON=${HORIZON:-5}
-read -p "Neutrale Zone % [Standard: 0.3]: " NEUTRAL_ZONE; NEUTRAL_ZONE=${NEUTRAL_ZONE:-0.3}
-
-echo -e "\n${YELLOW}Modell neu trainieren?${NC}"
-read -p "Vorhandene Modelle überschreiben? (j/n) [Standard: n]: " RETRAIN_CHOICE; RETRAIN_CHOICE=${RETRAIN_CHOICE:-n}
-RETRAIN_FLAG=""
-if [[ "$RETRAIN_CHOICE" == "j" || "$RETRAIN_CHOICE" == "J" ]]; then
-    RETRAIN_FLAG="--force-retrain"
-fi
 
 echo -e "\n${YELLOW}Wähle einen Optimierungs-Modus:${NC}"
 echo "  1) Strenger Modus   (Calmar mit Constraints: DD, Win-Rate, PnL)"
@@ -81,34 +59,81 @@ else
     MIN_PNL=-99999
 fi
 
+# --- Grid: Horizon × Neutral-Zone (automatisch durchsucht) ---
+HORIZONS=(3 5 10)
+NEUTRAL_ZONES=(0.2 0.3 0.5)
+TOTAL_COMBOS=$((${#HORIZONS[@]} * ${#NEUTRAL_ZONES[@]}))
+
 # --- Schleife über Symbole und Zeitrahmen ---
 for symbol in $SYMBOLS; do
     FULL_SYMBOL="${symbol}/USDT:USDT"
     for timeframe in $TIMEFRAMES; do
+
+        # Automatisches Kerzen-Limit basierend auf Zeitfenster
+        case "$timeframe" in
+            5m|15m)           LIMIT=2500 ;;
+            30m|1h)           LIMIT=2000 ;;
+            2h|4h)            LIMIT=1500 ;;
+            6h|12h|1d|3d|1w)  LIMIT=1000 ;;
+            *)                LIMIT=1500 ;;
+        esac
+
+        SAFE_NAME="${symbol}USDTUSDT_${timeframe}"
+        CONFIG_FILE="src/dbot/strategy/configs/config_${SAFE_NAME}_lstm.json"
+        BEST_CALMAR="-9999"
+        COMBO_IDX=0
+
         echo -e "\n${BLUE}=======================================================${NC}"
-        echo -e "${BLUE}  Pipeline für: $FULL_SYMBOL ($timeframe)${NC}"
+        echo -e "${BLUE}  Pipeline für: $FULL_SYMBOL ($timeframe) | Limit: $LIMIT Kerzen${NC}"
+        echo -e "${BLUE}  Grid-Suche: ${#HORIZONS[@]} Horizonte × ${#NEUTRAL_ZONES[@]} Zonen = $TOTAL_COMBOS Kombinationen${NC}"
         echo -e "${BLUE}=======================================================${NC}"
 
-        echo -e "\n${GREEN}>>> Starte LSTM-Training + Optuna-Optimierung...${NC}"
-        PYTHONPATH="$SCRIPT_DIR/src" "$PYTHON" "$OPTIMIZER" \
-            --symbols "$FULL_SYMBOL" \
-            --timeframes "$timeframe" \
-            --limit "$LIMIT" \
-            --start-capital "$START_CAPITAL" \
-            --epochs "$EPOCHS" \
-            --trials "$N_TRIALS" \
-            --horizon "$HORIZON" \
-            --neutral-zone "$NEUTRAL_ZONE" \
-            --mode "$OPTIM_MODE_ARG" \
-            --max-drawdown "$MAX_DD" \
-            --min-win-rate "$MIN_WR" \
-            --min-pnl "$MIN_PNL" \
-            $RETRAIN_FLAG
+        for H in "${HORIZONS[@]}"; do
+            for N in "${NEUTRAL_ZONES[@]}"; do
+                COMBO_IDX=$((COMBO_IDX + 1))
+                echo -e "\n${YELLOW}[$COMBO_IDX/$TOTAL_COMBOS] Testing horizon=$H | neutral_zone=${N}%${NC}"
 
-        if [ $? -ne 0 ]; then
-            echo -e "${RED}❌ Fehler für $FULL_SYMBOL ($timeframe). Überspringe...${NC}"
+                PYTHONPATH="$SCRIPT_DIR/src" "$PYTHON" "$OPTIMIZER" \
+                    --symbols "$FULL_SYMBOL" \
+                    --timeframes "$timeframe" \
+                    --limit "$LIMIT" \
+                    --start-capital "$START_CAPITAL" \
+                    --epochs 50 \
+                    --trials "$N_TRIALS" \
+                    --horizon "$H" \
+                    --neutral-zone "$N" \
+                    --mode "$OPTIM_MODE_ARG" \
+                    --max-drawdown "$MAX_DD" \
+                    --min-win-rate "$MIN_WR" \
+                    --min-pnl "$MIN_PNL" \
+                    --force-retrain
+
+                if [ $? -ne 0 ]; then
+                    echo -e "${RED}❌ Fehler bei horizon=$H neutral_zone=$N. Überspringe...${NC}"
+                    continue
+                fi
+
+                # Calmar aus gespeicherter Config lesen und mit bisherigem Besten vergleichen
+                if [ -f "$CONFIG_FILE" ]; then
+                    NEW_CALMAR=$("$PYTHON" -c "import json; c=json.load(open('$CONFIG_FILE')); print(c.get('_backtest_metrics',{}).get('calmar_ratio',-9999))")
+                    IS_BETTER=$("$PYTHON" -c "print(1 if float('${NEW_CALMAR}') > float('${BEST_CALMAR}') else 0)")
+                    if [ "$IS_BETTER" == "1" ]; then
+                        BEST_CALMAR=$NEW_CALMAR
+                        cp "$CONFIG_FILE" "${CONFIG_FILE}.best"
+                        echo -e "${GREEN}  ✔ Neue beste Kombination! horizon=$H | neutral_zone=${N}% | Calmar=$BEST_CALMAR${NC}"
+                    else
+                        echo -e "  → Calmar=$NEW_CALMAR (kein Fortschritt, Bestes bisher: $BEST_CALMAR)"
+                    fi
+                fi
+            done
+        done
+
+        # Beste Config als finale Config setzen
+        if [ -f "${CONFIG_FILE}.best" ]; then
+            mv "${CONFIG_FILE}.best" "$CONFIG_FILE"
+            echo -e "\n${GREEN}✔ Beste Config gespeichert: $FULL_SYMBOL ($timeframe) | Calmar=$BEST_CALMAR${NC}"
         else
-            echo -e "${GREEN}✔ Pipeline für $FULL_SYMBOL ($timeframe) abgeschlossen.${NC}"
+            echo -e "${RED}❌ Keine valide Config gefunden für $FULL_SYMBOL ($timeframe)${NC}"
         fi
     done
 done
@@ -117,16 +142,10 @@ echo -e "\n${BLUE}=======================================================${NC}"
 echo -e "${BLUE}✔ Alle Pipelines abgeschlossen!${NC}"
 echo -e "${BLUE}=======================================================${NC}"
 
-# --- Interaktive Abfrage: Settings aktualisieren ---
-echo -e "\n${YELLOW}Möchtest du die optimierten Strategien automatisch in settings.json übernehmen?${NC}"
-echo -e "${YELLOW}(Dies ersetzt die aktuellen active_strategies mit den neu optimierten)${NC}"
-read -p "Settings aktualisieren? (j/n) [Standard: n]: " UPDATE_SETTINGS_CHOICE
-UPDATE_SETTINGS_CHOICE=${UPDATE_SETTINGS_CHOICE:-n}
+# --- Automatisch settings.json aktualisieren (kein Prompt) ---
+echo -e "\n${GREEN}>>> Aktualisiere settings.json mit optimierten Strategien...${NC}"
 
-if [[ "$UPDATE_SETTINGS_CHOICE" == "j" || "$UPDATE_SETTINGS_CHOICE" == "J" ]]; then
-    echo -e "\n${GREEN}>>> Aktualisiere settings.json mit optimierten Strategien...${NC}"
-
-    PYTHONPATH="$SCRIPT_DIR/src" "$PYTHON" - << PYTHON_SCRIPT
+PYTHONPATH="$SCRIPT_DIR/src" "$PYTHON" - << PYTHON_SCRIPT
 import json, os, glob, sys
 
 PROJECT_ROOT = "$SCRIPT_DIR"
@@ -153,11 +172,12 @@ for config_file in sorted(config_files):
             config = json.load(f)
         symbol = config.get('market', {}).get('symbol')
         timeframe = config.get('market', {}).get('timeframe')
+        calmar = config.get('_backtest_metrics', {}).get('calmar_ratio', 0)
         if symbol and timeframe:
             exists = any(s.get('symbol') == symbol and s.get('timeframe') == timeframe for s in new_strategies)
             if not exists:
                 new_strategies.append({"symbol": symbol, "timeframe": timeframe, "active": True})
-                print(f"  + {symbol} ({timeframe})")
+                print(f"  + {symbol} ({timeframe}) | Calmar={calmar:.3f}")
     except Exception as e:
         print(f"  Fehler bei {os.path.basename(config_file)}: {e}")
 
@@ -169,20 +189,6 @@ if new_strategies:
 else:
     print("Keine Strategien zum Übernehmen gefunden.")
 PYTHON_SCRIPT
-
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✔ settings.json wurde erfolgreich aktualisiert!${NC}"
-        echo -e "\n${YELLOW}Nächste Schritte:${NC}"
-        echo -e "   1. settings.json prüfen: cat settings.json"
-        echo -e "   2. secret.json: dbot API-Keys eintragen"
-        echo -e "   3. Bot starten: .venv/bin/python3 master_runner.py"
-    else
-        echo -e "${RED}❌ Fehler beim Aktualisieren von settings.json${NC}"
-    fi
-else
-    echo -e "${GREEN}✔ settings.json wurde NICHT verändert.${NC}"
-    echo -e "${YELLOW}Tipp: Configs manuell prüfen in src/dbot/strategy/configs/config_*_lstm.json${NC}"
-fi
 
 deactivate
 
