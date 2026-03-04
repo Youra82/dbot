@@ -124,6 +124,7 @@ def run_backtest(
             tp_price = position['tp_price']
             entry_price = position['entry_price']
             amount = position['amount']
+            notional = position['notional']
 
             # Prüfe ob SL/TP getroffen (vereinfacht: am aktuellen Close)
             hit_sl = (pos_side == 'long' and current_price <= sl_price) or \
@@ -135,13 +136,15 @@ def run_backtest(
                 exit_price = sl_price if hit_sl else tp_price
                 exit_price *= (1 - SLIPPAGE_PCT) if pos_side == 'long' else (1 + SLIPPAGE_PCT)
 
+                # PnL = Kursänderung * Asset-Menge (in USDT)
+                # notional = margin * leverage, amount = notional / entry_price
                 if pos_side == 'long':
-                    pnl = (exit_price - entry_price) / entry_price * amount * leverage
+                    pnl = (exit_price - entry_price) * amount
                 else:
-                    pnl = (entry_price - exit_price) / entry_price * amount * leverage
+                    pnl = (entry_price - exit_price) * amount
 
-                # Fees
-                fee = amount * (FEE_PCT * 2)  # Entry + Exit
+                # Fees auf Notional-Basis (Entry + Exit)
+                fee = notional * (FEE_PCT * 2)
                 pnl -= fee
 
                 capital += pnl
@@ -168,15 +171,15 @@ def run_backtest(
         if position is None and signal != 0:
             side = 'long' if signal == 1 else 'short'
 
-            # Positionsgröße
-            risk_amount = start_capital * (risk_per_entry_pct / 100.0)
-            sl_distance = current_price * sl_pct
-            if sl_distance <= 0:
-                continue
-            amount = risk_amount / sl_distance
+            # Positionsgröße: risk_per_entry_pct = Margin-Anteil am Kapital
+            # notional = margin * leverage → Hebelwirkung auf Positionsgröße
+            risk_margin = start_capital * (risk_per_entry_pct / 100.0)
+            notional = risk_margin * leverage
+            amount = notional / current_price  # Asset-Einheiten
 
-            # Mindest-Notional
-            if amount * current_price < 5.0:
+            # Mindest-Notional: im Backtester deaktiviert (Simulation);
+            # Live-Bot prüft Exchange-Limit separat
+            if notional < 0.01:
                 continue
 
             # Einstiegskosten (Slippage) + dynamisches R:R
@@ -199,6 +202,7 @@ def run_backtest(
                 'sl_price': sl_price,
                 'tp_price': tp_price,
                 'amount': amount,
+                'notional': notional,
                 'entry_time': ts,
             }
 
