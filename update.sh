@@ -13,7 +13,7 @@ git fetch origin
 
 # 3. Lokal auf GitHub-Stand zurücksetzen
 echo "3. Setze alle Dateien auf den neuesten Stand zurück..."
-git reset --hard origin/main
+git reset --hard origin/master
 
 # 4. secret.json wiederherstellen
 echo "4. Stelle 'secret.json' aus dem Backup wieder her..."

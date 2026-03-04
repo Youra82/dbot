@@ -15,9 +15,17 @@ import pandas as pd
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from dbot.analysis.backtester import _dynamic_rr, FEE_PCT, SLIPPAGE_PCT
-from dbot.model.feature_engineering import compute_features, apply_scaler
-from dbot.model.predictor import LSTMPredictor
+# Konstanten (analog backtester.py, kein torch-Import nötig)
+FEE_PCT = 0.0006
+SLIPPAGE_PCT = 0.0005
+
+
+def _dynamic_rr(confidence, threshold, rr_min=1.5, rr_max=3.0):
+    conf_range = 1.0 - threshold
+    if conf_range <= 0:
+        return rr_min
+    t = max(0.0, min(1.0, (confidence - threshold) / conf_range))
+    return rr_min + t * (rr_max - rr_min)
 
 logger = logging.getLogger('interactive_status')
 if not logger.handlers:
@@ -126,6 +134,7 @@ def extract_trades_lstm(df, predictor, config, start_capital):
     Fuehrt LSTM-Simulation durch und gibt Trade-Liste zurueck.
     Jeder Trade: {side, entry_time, entry_price, exit_time, exit_price, pnl_usd}
     """
+    from dbot.model.feature_engineering import compute_features, apply_scaler
     model_cfg = config.get('model', {})
     risk_cfg = config['risk']
 
@@ -453,6 +462,7 @@ def run(start_capital=1000.0, start_date=None, end_date=None):
                 logger.warning(f"Kein Modell gefunden fuer {filename}, ueberspringe.")
                 continue
 
+            from dbot.model.predictor import LSTMPredictor
             predictor = LSTMPredictor.from_files(model_path, scaler_path, seq_len)
 
             # Daten laden (immer gesamte Range fuer vollstaendige Trade-Historie)
