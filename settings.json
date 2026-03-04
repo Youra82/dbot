@@ -1,0 +1,19 @@
+{
+    "live_trading_settings": {
+        "active_strategies": [
+            {
+                "symbol": "BTC/USDT:USDT",
+                "timeframe": "4h",
+                "active": false,
+                "note": "Erst aktivieren nach: train_model.py + optimizer.py"
+            }
+        ]
+    },
+    "optimization_settings": {
+        "enabled": false,
+        "interval_days": 7,
+        "start_capital": 1000,
+        "num_trials": 100,
+        "val_split": 0.2
+    }
+}

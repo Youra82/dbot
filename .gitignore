@@ -1,0 +1,13 @@
+secret.json
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pt
+*.pkl
+artifacts/tracker/
+artifacts/results/
+data/
+logs/
+*.log
+.env
