@@ -24,7 +24,7 @@ DBot ist ein Deep-Learning Trading-Bot, der ein LSTM-Netzwerk (Long Short-Term M
 - **LSTM-Klassifikation**: Das Netzwerk gibt drei Wahrscheinlichkeiten aus (Long / Neutral / Short) — gehandelt wird, wenn eine Richtung den konfigurierten Threshold überschreitet
 - **Feature Engineering**: 12 normalisierte Features (RSI, MACD, Bollinger, ATR, ADX, EMA-Abstände, Volume-Ratio, etc.) als Sliding-Window-Sequenz
 - **Vollautomatische Pipeline**: `run_pipeline.sh` erledigt alles in einem Schritt — LSTM einmalig trainieren, danach Signal-Thresholds + Risiko-Parameter via Optuna optimieren (kein Re-Training pro Trial)
-- **Risk Engine**: Risiko-basierte Positionsgröße (% vom Startkapital / SL-Distanz), 1:2 R:R, Stop-Loss + Take-Profit als Trigger-Market-Orders
+- **Risk Engine**: Risiko-basierte Positionsgröße (% vom Startkapital / SL-Distanz), dynamisches R:R basierend auf LSTM-Konfidenz (rr_min bis rr_max, Optuna-optimiert), Stop-Loss + Take-Profit als Trigger-Market-Orders
 - **Cooldown**: Nach einem Stop-Loss bleibt der Bot im Cooldown bis das LSTM die Gegenrichtung signalisiert
 - **Execution**: CCXT für Bitget Futures (USDT-Margin, Isolated)
 
@@ -79,7 +79,8 @@ Label 2 = SHORT   → return_pct < -neutral_zone%
 - ✅ 3-Klassen-Signal: Long / Neutral / Short mit konfigurierbaren Thresholds
 - ✅ 1 Entry pro Signal (kein Layer-Stacking)
 - ✅ Trigger-Limit Entry (0.05% Delta für quasi-sofortige Ausführung)
-- ✅ 1:2 Risk:Reward — TP automatisch aus SL-Distanz berechnet
+- ✅ Dynamisches Risk:Reward — R:R skaliert linear mit LSTM-Konfidenz (niedriges Signal → rr_min, hohes Signal → rr_max)
+- ✅ rr_min und rr_max werden von Optuna optimiert und in der Config gespeichert
 - ✅ Cooldown-Mechanismus nach Stop-Loss
 - ✅ Risiko-Reduktion bei schlechter Performance (5+ Verluste in Folge → Hebel halbieren)
 - ✅ Telegram-Benachrichtigungen (neue Position, Fehler)
@@ -87,7 +88,7 @@ Label 2 = SHORT   → return_pct < -neutral_zone%
 
 ### Technical Features
 - ✅ CCXT Integration für Bitget Futures
-- ✅ Optuna Signal-Threshold Optimierung (100+ Trials in Minuten, kein Re-Training)
+- ✅ Optuna Optimierung (100+ Trials in Minuten, kein Re-Training): long_threshold, short_threshold, stop_loss_pct, leverage, risk_per_entry_pct, rr_min, rr_max
 - ✅ Backtesting mit realistischer Slippage-Simulation (0.05%) + Fees (0.06%)
 - ✅ Automatisches OHLCV-Caching (kein erneuter Download)
 - ✅ Guardian-Decorator für kritische Fehlerbehandlung
@@ -216,7 +217,7 @@ Ein Aufruf: optimizer.py
   3. Optuna Optimierung (KEIN Re-Training pro Trial!)
      → Vortrainiertes Modell laden (1x für alle Trials)
      → Optuna optimiert auf den 20% Validierungsdaten:
-        long_threshold, short_threshold, stop_loss_pct, leverage, risk_per_entry_pct
+        long_threshold, short_threshold, stop_loss_pct, leverage, risk_per_entry_pct, rr_min, rr_max
      → Jeder Trial: Backtest in Sekunden — kein Training!
      → Beste Config speichern: src/dbot/strategy/configs/config_BTCUSDTUSDT_4h_lstm.json
   ─────────────────────────────────────────────────────────────
@@ -254,7 +255,9 @@ Nach der Pipeline liegt in `src/dbot/strategy/configs/`:
         "horizon_candles": 5,
         "neutral_zone_pct": 0.3,
         "long_threshold": 0.58,
-        "short_threshold": 0.61
+        "short_threshold": 0.61,
+        "rr_min": 1.4,
+        "rr_max": 2.9
     },
     "risk": {
         "stop_loss_pct": 1.8,
