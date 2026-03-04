@@ -35,7 +35,6 @@ def load_all_configs():
 
 
 def load_ohlcv(symbol, timeframe, start_date=None, end_date=None, limit=2000):
-    """Lädt OHLCV-Daten aus Cache oder Exchange, optional gefiltert nach Datum."""
     safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
     cache_path = os.path.join(PROJECT_ROOT, 'data', f"{safe_name}.csv")
     if os.path.exists(cache_path):
@@ -56,17 +55,12 @@ def load_ohlcv(symbol, timeframe, start_date=None, end_date=None, limit=2000):
             logger.error(f"Konnte Daten nicht laden: {e}")
             return None
 
-    # Datum-Filter
-    if start_date or end_date:
-        # Sicherstellen dass Index UTC-aware ist
-        if df.index.tz is None:
-            df.index = df.index.tz_localize('UTC')
-        if start_date:
-            ts_start = pd.Timestamp(start_date, tz='UTC')
-            df = df[df.index >= ts_start]
-        if end_date:
-            ts_end = pd.Timestamp(end_date, tz='UTC') + pd.Timedelta(days=1)
-            df = df[df.index < ts_end]
+    if df.index.tz is None:
+        df.index = df.index.tz_localize('UTC')
+    if start_date:
+        df = df[df.index >= pd.Timestamp(start_date, tz='UTC')]
+    if end_date:
+        df = df[df.index < pd.Timestamp(end_date, tz='UTC') + pd.Timedelta(days=1)]
 
     return df
 
@@ -74,6 +68,17 @@ def load_ohlcv(symbol, timeframe, start_date=None, end_date=None, limit=2000):
 def model_exists(symbol, timeframe):
     safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
     return os.path.exists(os.path.join(PROJECT_ROOT, 'artifacts', 'models', f"{safe_name}.pt"))
+
+
+def ask_dates_and_capital():
+    print("\n--- Konfiguration ---")
+    start_date = input("Startdatum (JJJJ-MM-TT) [Standard: 2022-01-01]: ").strip() or "2022-01-01"
+    end_date = input(f"Enddatum   (JJJJ-MM-TT) [Standard: Heute]: ").strip() or datetime.now().strftime("%Y-%m-%d")
+    cap_str = input("Startkapital USDT         [Standard: 1000]: ").strip()
+    start_capital = float(cap_str) if cap_str else 1000.0
+    print(f"Zeitraum: {start_date} → {end_date} | Kapital: {start_capital:.0f} USDT")
+    print("─" * 60)
+    return start_date, end_date, start_capital
 
 
 def print_separator(char="─", width=60):
@@ -92,17 +97,12 @@ def print_header(title):
 
 def run_single_analysis(start_capital=1000.0, start_date=None, end_date=None):
     print_header("Modus 1: Einzel-Analyse aller LSTM-Strategien")
+    print(f"  Zeitraum: {start_date} bis {end_date} | Startkapital: {start_capital:.0f} USDT")
 
     config_files = load_all_configs()
     if not config_files:
-        print("  Keine Configs in src/dbot/strategy/configs/ gefunden.")
-        print("  Bitte zuerst ./run_pipeline.sh ausführen.")
+        print("  Keine Configs gefunden. Bitte ./run_pipeline.sh ausführen.")
         return
-
-    if start_date and end_date:
-        print(f"  Zeitraum: {start_date} bis {end_date} | Startkapital: {start_capital:.0f} USDT")
-    else:
-        print(f"  Startkapital: {start_capital:.0f} USDT")
 
     from dbot.model.predictor import LSTMPredictor
     from dbot.analysis.backtester import run_backtest
@@ -112,7 +112,6 @@ def run_single_analysis(start_capital=1000.0, start_date=None, end_date=None):
     for config_path in config_files:
         with open(config_path) as f:
             config = json.load(f)
-
         symbol = config['market']['symbol']
         timeframe = config['market']['timeframe']
         safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
@@ -120,7 +119,7 @@ def run_single_analysis(start_capital=1000.0, start_date=None, end_date=None):
         print(f"\n  Analysiere: {symbol} ({timeframe})")
 
         if not model_exists(symbol, timeframe):
-            print(f"  ⚠  Kein Modell gefunden. ./run_pipeline.sh ausführen.")
+            print(f"  ⚠  Kein Modell gefunden.")
             continue
 
         model_path = os.path.join(PROJECT_ROOT, 'artifacts', 'models', f"{safe_name}.pt")
@@ -130,36 +129,35 @@ def run_single_analysis(start_capital=1000.0, start_date=None, end_date=None):
         try:
             predictor = LSTMPredictor.from_files(model_path, scaler_path, seq_len)
         except Exception as e:
-            print(f"  ⚠  Modell konnte nicht geladen werden: {e}")
+            print(f"  ⚠  Modell-Fehler: {e}")
             continue
 
         df = load_ohlcv(symbol, timeframe, start_date=start_date, end_date=end_date)
         if df is None or len(df) < 200:
-            print(f"  ⚠  Zu wenig Daten für diesen Zeitraum ({len(df) if df is not None else 0} Kerzen).")
+            print(f"  ⚠  Zu wenig Daten ({len(df) if df is not None else 0} Kerzen).")
+            continue
+
+        metrics = run_backtest(df, predictor, config, start_capital=start_capital, verbose=False)
+        if 'error' in metrics:
+            print(f"  ⚠  Backtest-Fehler: {metrics['error']}")
             continue
 
         actual_start = df.index[0].strftime('%Y-%m-%d')
         actual_end = df.index[-1].strftime('%Y-%m-%d')
 
-        metrics = run_backtest(df, predictor, config, start_capital=start_capital, verbose=False)
-
-        if 'error' in metrics:
-            print(f"  ⚠  Backtest-Fehler: {metrics['error']}")
-            continue
-
         results.append({
             'Strategie': f"{symbol} ({timeframe})",
             'Zeitraum': f"{actual_start} → {actual_end}",
-            'Trades': metrics['total_trades'],
-            'Win-Rate': f"{metrics['win_rate']:.1f}%",
-            'PnL %': f"{metrics['pnl_pct']:+.1f}%",
-            'Max DD %': f"{metrics['max_drawdown_pct']:.1f}%",
-            'Calmar': f"{metrics['calmar_ratio']:.2f}",
-            'End-Kapital': f"{metrics['final_capital']:.0f} USDT",
+            'Trades': metrics.get('total_trades', 0),
+            'Win-Rate': f"{metrics.get('win_rate', 0):.1f}%",
+            'PnL %': f"{metrics.get('pnl_pct', 0):+.1f}%",
+            'Max DD %': f"{metrics.get('max_drawdown_pct', 0):.1f}%",
+            'Calmar': f"{metrics.get('calmar_ratio', 0):.2f}",
+            'Endkapital': f"{metrics.get('final_capital', start_capital):.2f} USDT",
         })
 
     if not results:
-        print("\n  Keine Ergebnisse. Bitte Modelle trainieren und Configs optimieren.")
+        print("\n  Keine Ergebnisse.")
         return
 
     print()
@@ -172,25 +170,23 @@ def run_single_analysis(start_capital=1000.0, start_date=None, end_date=None):
 
 
 # ─────────────────────────────────────────────────────────────
-# Modus 2: Portfolio-Simulation
+# Modus 2: Portfolio-Simulation (manuelle Auswahl wie stbot)
 # ─────────────────────────────────────────────────────────────
 
 def run_portfolio_simulation(start_capital=1000.0, start_date=None, end_date=None):
-    print_header("Modus 2: Portfolio-Simulation (kombiniertes Kapital)")
+    print_header("Modus 2: Portfolio-Simulation")
+    print(f"  Zeitraum: {start_date} bis {end_date} | Startkapital: {start_capital:.0f} USDT")
 
     config_files = load_all_configs()
     if not config_files:
         print("  Keine Configs gefunden.")
         return
 
-    if start_date and end_date:
-        print(f"  Zeitraum: {start_date} bis {end_date}")
-
     from dbot.model.predictor import LSTMPredictor
     from dbot.analysis.backtester import run_backtest
 
+    available = []
     print("\n  Verfügbare Strategien:")
-    valid = []
     for i, config_path in enumerate(config_files):
         with open(config_path) as f:
             config = json.load(f)
@@ -200,21 +196,40 @@ def run_portfolio_simulation(start_capital=1000.0, start_date=None, end_date=Non
         mark = "✓" if has_model else "✗ (kein Modell)"
         print(f"  {i+1}) {symbol} ({timeframe}) {mark}")
         if has_model:
-            valid.append((config_path, config))
+            available.append((config_path, config))
 
-    if not valid:
+    if not available:
         print("\n  Keine trainierten Modelle vorhanden.")
         return
 
-    print(f"\n  Alle {len(valid)} Strategie(n) mit trainiertem Modell werden kombiniert.")
-    capital_per_strategy = start_capital / len(valid)
-    print(f"  Kapital pro Strategie: {capital_per_strategy:.0f} USDT")
-    print()
+    selection = input("\n  Welche Strategien simulieren? (Zahlen mit Komma, z.B. 1,2 oder 'alle'): ").strip()
+    if not selection or selection.lower() == 'alle':
+        selected = available
+    else:
+        try:
+            indices = [int(x.strip()) - 1 for x in selection.split(',')]
+            selected = [available[i] for i in indices if 0 <= i < len(available)]
+        except (ValueError, IndexError):
+            print("  Ungültige Auswahl, verwende alle.")
+            selected = available
+
+    if not selected:
+        print("  Keine gültigen Strategien.")
+        return
+
+    capital_per_strategy = start_capital / len(selected)
+    print(f"\n  {len(selected)} Strategie(n) | Kapital je: {capital_per_strategy:.2f} USDT\n")
 
     total_pnl = 0.0
+    total_trades = 0
+    all_wins = 0
+    all_losses = 0
+    max_dd_overall = 0.0
+    liquidated = False
+    liq_info = None
     all_results = []
 
-    for config_path, config in valid:
+    for config_path, config in selected:
         symbol = config['market']['symbol']
         timeframe = config['market']['timeframe']
         safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
@@ -227,20 +242,30 @@ def run_portfolio_simulation(start_capital=1000.0, start_date=None, end_date=Non
             predictor = LSTMPredictor.from_files(model_path, scaler_path, seq_len)
             df = load_ohlcv(symbol, timeframe, start_date=start_date, end_date=end_date)
             if df is None or len(df) < 200:
-                print(f"  ⚠  Zu wenig Daten für {symbol} ({timeframe}).")
+                print(f"  ⚠  Zu wenig Daten für {symbol}.")
                 continue
             metrics = run_backtest(df, predictor, config, start_capital=capital_per_strategy, verbose=False)
-            pnl = metrics.get('pnl_usdt', 0)
+            pnl = metrics.get('pnl_usdt', 0.0)
             total_pnl += pnl
+            total_trades += metrics.get('total_trades', 0)
+            all_wins += metrics.get('winning_trades', 0)
+            all_losses += metrics.get('losing_trades', 0)
+            dd = metrics.get('max_drawdown_pct', 0.0)
+            if dd > max_dd_overall:
+                max_dd_overall = dd
+            if metrics.get('final_capital', capital_per_strategy) <= 0:
+                liquidated = True
+                liq_info = f"{symbol} ({timeframe})"
+
             actual_start = df.index[0].strftime('%Y-%m-%d')
             actual_end = df.index[-1].strftime('%Y-%m-%d')
             all_results.append({
                 'Strategie': f"{symbol} ({timeframe})",
                 'Zeitraum': f"{actual_start} → {actual_end}",
-                'Kapital': f"{capital_per_strategy:.0f}",
+                'Kapital': f"{capital_per_strategy:.2f}",
                 'PnL USDT': f"{pnl:+.2f}",
                 'PnL %': f"{metrics.get('pnl_pct', 0):+.1f}%",
-                'Max DD %': f"{metrics.get('max_drawdown_pct', 0):.1f}%",
+                'Max DD %': f"{dd:.1f}%",
                 'Trades': metrics.get('total_trades', 0),
             })
         except Exception as e:
@@ -252,13 +277,21 @@ def run_portfolio_simulation(start_capital=1000.0, start_date=None, end_date=Non
         pd.set_option('display.width', 1000)
         print(df_r.to_string(index=False))
         print_separator()
-        final_capital = start_capital + total_pnl
-        pnl_pct = total_pnl / start_capital * 100
-        print(f"\n  Portfolio-Gesamt:")
-        print(f"  Startkapital:  {start_capital:.0f} USDT")
-        print(f"  Endkapital:    {final_capital:.0f} USDT")
-        print(f"  Gesamt PnL:    {total_pnl:+.2f} USDT ({pnl_pct:+.1f}%)")
-        print_separator()
+
+    final_capital = start_capital + total_pnl
+    pnl_pct = total_pnl / start_capital * 100
+    win_rate = all_wins / total_trades * 100 if total_trades > 0 else 0.0
+
+    print(f"\n--- Portfolio-Gesamt ---")
+    print(f"Zeitraum:          {start_date} bis {end_date}")
+    print(f"Startkapital:      {start_capital:.2f} USDT")
+    print(f"Endkapital:        {final_capital:.2f} USDT")
+    print(f"Gesamt PnL:        {total_pnl:+.2f} USDT ({pnl_pct:+.1f}%)")
+    print(f"Anzahl Trades:     {total_trades}")
+    print(f"Win-Rate:          {win_rate:.1f}%")
+    print(f"Portfolio Max DD:  {max_dd_overall:.1f}%")
+    print(f"Liquidiert:        {'JA — ' + liq_info if liquidated else 'NEIN'}")
+    print_separator()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -280,7 +313,6 @@ def run_model_info():
     for config_path in config_files:
         with open(config_path) as f:
             config = json.load(f)
-
         symbol = config['market']['symbol']
         timeframe = config['market']['timeframe']
         safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
@@ -333,7 +365,7 @@ def run_model_info():
                     last_signal = f"SHORT (p={last_probs[2]:.3f})"
                 else:
                     last_signal = "NEUTRAL"
-                print(f"  Aktuelles Signal: {last_signal}")
+                print(f"  Signal jetzt: {last_signal}")
         except Exception as e:
             logger.warning(f"Prediction-Verteilung fehlgeschlagen: {e}")
 
@@ -350,65 +382,61 @@ def run_live_status():
     print_header("Modus 4: Live-Status (Tracker & Performance)")
 
     tracker_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker')
-    if not os.path.exists(tracker_dir):
-        print("  Kein Tracker-Verzeichnis gefunden (noch nie gelaufen?).")
-        return
-
-    tracker_files = sorted([f for f in os.listdir(tracker_dir) if f.endswith('.json')])
-    if not tracker_files:
-        print("  Keine Tracker-Dateien gefunden.")
-        return
-
-    for filename in tracker_files:
-        path = os.path.join(tracker_dir, filename)
-        try:
-            with open(path) as f:
-                tracker = json.load(f)
-        except Exception:
-            continue
-
-        name = filename.replace('.json', '')
-        status = tracker.get('status', 'unbekannt')
-        last_side = tracker.get('last_side', '-')
-        perf = tracker.get('performance', {})
-        sl_ids = tracker.get('stop_loss_ids', [])
-        tp_ids = tracker.get('take_profit_ids', [])
-
-        print(f"\n  ── {name} ──")
-        print(f"  Status:       {status}")
-        print(f"  Letzte Seite: {last_side}")
-        if sl_ids or tp_ids:
-            print(f"  Offene SL-IDs: {len(sl_ids)} | TP-IDs: {len(tp_ids)}")
-        if 'last_notified_entry_price' in tracker:
-            print(f"  Entry-Preis:  {tracker['last_notified_entry_price']:.4f} ({tracker.get('last_notified_side', '?')})")
-
-        if perf:
-            total = perf.get('total_trades', 0)
-            wins = perf.get('winning_trades', 0)
-            consec = perf.get('consecutive_losses', 0)
-            wr = perf.get('win_rate', wins / total * 100 if total > 0 else 0)
-            print(f"  Performance:  {total} Trades | Win-Rate: {wr:.1f}% | Verluste in Folge: {consec}")
-
-            if status == 'stop_loss_triggered':
-                print(f"  ⚠  Cooldown aktiv — kein neuer Entry bis LSTM Gegenrichtung signalisiert")
-            elif consec >= 5:
-                print(f"  ⚠  Risiko-Reduktion aktiv (5+ Verluste in Folge)")
-
-    print()
-    print_separator()
-
-    log_dir = os.path.join(PROJECT_ROOT, 'logs')
-    if os.path.exists(log_dir):
-        master_log = os.path.join(log_dir, 'master_runner.log')
-        if os.path.exists(master_log):
-            print(f"\n  Letzte Log-Einträge (master_runner.log):")
+    if not os.path.exists(tracker_dir) or not os.listdir(tracker_dir):
+        print("  Keine Tracker-Dateien gefunden (Bot noch nicht gestartet).")
+    else:
+        tracker_files = sorted([f for f in os.listdir(tracker_dir) if f.endswith('.json')])
+        for filename in tracker_files:
+            path = os.path.join(tracker_dir, filename)
             try:
-                with open(master_log) as f:
-                    lines = f.readlines()
-                for line in lines[-10:]:
-                    print(f"  {line.rstrip()}")
+                with open(path) as f:
+                    tracker = json.load(f)
             except Exception:
-                pass
+                continue
+
+            name = filename.replace('.json', '')
+            status = tracker.get('status', 'unbekannt')
+            last_side = tracker.get('last_side', '-')
+            perf = tracker.get('performance', {})
+            sl_ids = tracker.get('stop_loss_ids', [])
+            tp_ids = tracker.get('take_profit_ids', [])
+
+            print(f"\n  ── {name} ──")
+            print(f"  Status:       {status}")
+            print(f"  Letzte Seite: {last_side}")
+            if sl_ids or tp_ids:
+                print(f"  Offene SL-IDs: {len(sl_ids)} | TP-IDs: {len(tp_ids)}")
+            if 'last_notified_entry_price' in tracker:
+                print(f"  Entry-Preis:  {tracker['last_notified_entry_price']:.4f} ({tracker.get('last_notified_side', '?')})")
+
+            if perf:
+                total = perf.get('total_trades', 0)
+                wins = perf.get('winning_trades', 0)
+                consec = perf.get('consecutive_losses', 0)
+                wr = wins / total * 100 if total > 0 else 0
+                print(f"  Performance:  {total} Trades | Win-Rate: {wr:.1f}% | Verluste in Folge: {consec}")
+                if status == 'stop_loss_triggered':
+                    print(f"  ⚠  Cooldown aktiv")
+                elif consec >= 5:
+                    print(f"  ⚠  Risiko-Reduktion aktiv (5+ Verluste in Folge)")
+
+        print()
+        print_separator()
+
+    # Log-Zusammenfassung
+    log_dir = os.path.join(PROJECT_ROOT, 'logs')
+    master_log = os.path.join(log_dir, 'master_runner.log') if log_dir else None
+    if master_log and os.path.exists(master_log):
+        print(f"\n  Letzte Log-Einträge (master_runner.log):")
+        try:
+            with open(master_log) as f:
+                lines = f.readlines()
+            for line in lines[-10:]:
+                print(f"  {line.rstrip()}")
+        except Exception:
+            pass
+    else:
+        print("\n  Kein Log vorhanden (master_runner noch nicht gestartet).")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -420,13 +448,12 @@ def main():
     parser.add_argument('--mode', type=int, default=1, choices=[1, 2, 3, 4])
     args = parser.parse_args()
 
-    print("\n--- Konfiguration ---")
-    start_date = input("Startdatum (JJJJ-MM-TT) [Standard: 2022-01-01]: ").strip() or "2022-01-01"
-    end_date = input(f"Enddatum   (JJJJ-MM-TT) [Standard: Heute]: ").strip() or datetime.now().strftime("%Y-%m-%d")
-    cap_str = input("Startkapital USDT         [Standard: 1000]: ").strip()
-    start_capital = float(cap_str) if cap_str else 1000.0
-    print(f"Zeitraum: {start_date} → {end_date} | Kapital: {start_capital:.0f} USDT")
-    print_separator()
+    # Datum/Kapital nur für Modi die es brauchen
+    if args.mode in [1, 2]:
+        start_date, end_date, start_capital = ask_dates_and_capital()
+    else:
+        start_date = end_date = None
+        start_capital = 1000.0
 
     if args.mode == 1:
         run_single_analysis(start_capital, start_date, end_date)

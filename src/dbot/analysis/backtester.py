@@ -212,7 +212,9 @@ def _compute_metrics(trades: list, start_capital: float, final_capital: float) -
         return {
             'total_trades': 0, 'win_rate': 0.0, 'pnl_pct': 0.0,
             'max_drawdown_pct': 0.0, 'calmar_ratio': 0.0,
-            'avg_win_usdt': 0.0, 'avg_loss_usdt': 0.0, 'start_capital': start_capital,
+            'avg_win_usdt': 0.0, 'avg_loss_usdt': 0.0,
+            'start_capital': start_capital, 'final_capital': start_capital,
+            'pnl_usdt': 0.0,
         }
 
     df_trades = pd.DataFrame(trades)
