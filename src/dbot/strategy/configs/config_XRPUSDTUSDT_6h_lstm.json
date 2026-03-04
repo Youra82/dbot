@@ -1,0 +1,33 @@
+{
+    "market": {
+        "symbol": "XRP/USDT:USDT",
+        "timeframe": "6h"
+    },
+    "model": {
+        "sequence_length": 60,
+        "horizon_candles": 3,
+        "neutral_zone_pct": 0.2,
+        "rr_min": 2.47,
+        "rr_max": 4.12,
+        "long_threshold": 0.4598,
+        "short_threshold": 0.4996
+    },
+    "risk": {
+        "stop_loss_pct": 0.78,
+        "leverage": 10,
+        "risk_per_entry_pct": 2.85,
+        "margin_mode": "isolated"
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "initial_capital_live": 1000,
+    "_backtest_metrics": {
+        "trades": 15,
+        "win_rate": 66.7,
+        "pnl_pct": 393.2,
+        "max_drawdown_pct": 8.3,
+        "calmar_ratio": 47.377
+    }
+}

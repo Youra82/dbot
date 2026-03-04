@@ -1,0 +1,33 @@
+{
+    "market": {
+        "symbol": "ETH/USDT:USDT",
+        "timeframe": "4h"
+    },
+    "model": {
+        "sequence_length": 60,
+        "horizon_candles": 3,
+        "neutral_zone_pct": 0.2,
+        "rr_min": 2.47,
+        "rr_max": 3.98,
+        "long_threshold": 0.4676,
+        "short_threshold": 0.5864
+    },
+    "risk": {
+        "stop_loss_pct": 1.38,
+        "leverage": 5,
+        "risk_per_entry_pct": 2.41,
+        "margin_mode": "isolated"
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "initial_capital_live": 1000,
+    "_backtest_metrics": {
+        "trades": 10,
+        "win_rate": 60.0,
+        "pnl_pct": 0.06,
+        "max_drawdown_pct": 0.01,
+        "calmar_ratio": 5.283
+    }
+}
