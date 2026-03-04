@@ -378,8 +378,10 @@ def run_model_info():
 # Modus 4: Live-Status (Tracker-Dateien)
 # ─────────────────────────────────────────────────────────────
 
-def run_live_status():
+def run_live_status(start_date=None, end_date=None):
     print_header("Modus 4: Live-Status (Tracker & Performance)")
+    if start_date and end_date:
+        print(f"  Zeitraum: {start_date} bis {end_date}\n")
 
     tracker_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'tracker')
     if not os.path.exists(tracker_dir) or not os.listdir(tracker_dir):
@@ -431,7 +433,10 @@ def run_live_status():
         try:
             with open(master_log) as f:
                 lines = f.readlines()
-            for line in lines[-10:]:
+            # Datum-Filter wenn angegeben
+            if start_date:
+                lines = [l for l in lines if l[:10] >= start_date]
+            for line in lines[-15:]:
                 print(f"  {line.rstrip()}")
         except Exception:
             pass
@@ -448,12 +453,13 @@ def main():
     parser.add_argument('--mode', type=int, default=1, choices=[1, 2, 3, 4])
     args = parser.parse_args()
 
-    # Datum/Kapital nur für Modi die es brauchen
-    if args.mode in [1, 2]:
-        start_date, end_date, start_capital = ask_dates_and_capital()
-    else:
-        start_date = end_date = None
-        start_capital = 1000.0
+    print("\n--- Konfiguration ---")
+    start_date = input("Startdatum (JJJJ-MM-TT) [Standard: 2022-01-01]: ").strip() or "2022-01-01"
+    end_date = input(f"Enddatum   (JJJJ-MM-TT) [Standard: Heute]: ").strip() or datetime.now().strftime("%Y-%m-%d")
+    cap_str = input("Startkapital USDT         [Standard: 1000]: ").strip()
+    start_capital = float(cap_str) if cap_str else 1000.0
+    print(f"Zeitraum: {start_date} → {end_date} | Kapital: {start_capital:.0f} USDT")
+    print_separator()
 
     if args.mode == 1:
         run_single_analysis(start_capital, start_date, end_date)
@@ -462,7 +468,7 @@ def main():
     elif args.mode == 3:
         run_model_info()
     elif args.mode == 4:
-        run_live_status()
+        run_live_status(start_date, end_date)
 
 
 if __name__ == "__main__":
