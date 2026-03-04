@@ -7,15 +7,15 @@
         "sequence_length": 60,
         "horizon_candles": 3,
         "neutral_zone_pct": 0.2,
-        "rr_min": 2.46,
-        "rr_max": 4.13,
-        "long_threshold": 0.5457,
-        "short_threshold": 0.4667
+        "rr_min": 2.03,
+        "rr_max": 3.78,
+        "long_threshold": 0.4605,
+        "short_threshold": 0.5301
     },
     "risk": {
-        "stop_loss_pct": 1.21,
-        "leverage": 6,
-        "risk_per_entry_pct": 2.55,
+        "stop_loss_pct": 0.68,
+        "leverage": 4,
+        "risk_per_entry_pct": 0.85,
         "margin_mode": "isolated"
     },
     "behavior": {
@@ -24,10 +24,10 @@
     },
     "initial_capital_live": 1000,
     "_backtest_metrics": {
-        "trades": 15,
-        "win_rate": 80.0,
-        "pnl_pct": 0.01,
-        "max_drawdown_pct": 0.0,
-        "calmar_ratio": 24.946
+        "trades": 36,
+        "win_rate": 66.7,
+        "pnl_pct": 1.06,
+        "max_drawdown_pct": 0.09,
+        "calmar_ratio": 12.195
     }
 }
