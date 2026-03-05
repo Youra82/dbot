@@ -584,6 +584,14 @@ print('OK')
 
 ### Bot aktualisieren
 
+Beim ersten Mal Ausführungsrechte setzen:
+
+```bash
+chmod +x update.sh && ./update.sh
+```
+
+Danach reicht:
+
 ```bash
 ./update.sh
 ```
