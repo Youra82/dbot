@@ -47,15 +47,20 @@ def load_data_from_exchange(symbol, timeframe, limit=3000):
     if os.path.exists(cache_path):
         logger.info(f"Lade gecachte Daten: {cache_path}")
         df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
-        # Refresh nur wenn Cache älter als 1 Tag
-        cache_age_hours = (pd.Timestamp.now(tz='UTC') - df.index[-1]).total_seconds() / 3600
-        if cache_age_hours < 24:
-            logger.info(f"Cache frisch ({cache_age_hours:.1f}h alt). Nutze Cache.")
-            return df
+        if not df.empty:
+            try:
+                cache_age_hours = (pd.Timestamp.now(tz='UTC') - df.index[-1]).total_seconds() / 3600
+                if cache_age_hours < 24:
+                    logger.info(f"Cache frisch ({cache_age_hours:.1f}h alt). Nutze Cache.")
+                    return df
+            except Exception:
+                pass  # Timestamp-Parsing-Fehler → weiter zu Exchange
 
     logger.info(f"Lade {limit} Kerzen für {symbol} ({timeframe}) von Bitget...")
     df = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=limit)
 
+    if df.empty:
+        raise ValueError(f"Exchange lieferte keine Daten für {symbol} ({timeframe})")
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     df.to_csv(cache_path)
     logger.info(f"Daten gecacht: {cache_path} ({len(df)} Kerzen)")

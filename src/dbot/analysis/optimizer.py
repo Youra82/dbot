@@ -36,19 +36,20 @@ def load_data(symbol, timeframe, limit=2000):
     safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
     cache_path = os.path.join(PROJECT_ROOT, 'data', f"{safe_name}.csv")
 
-    # Cache nutzen wenn frisch (< 24h)
+    # Cache nutzen wenn frisch (< 24h) und nicht leer
     if os.path.exists(cache_path):
         df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
-        try:
-            last_ts = df.index[-1]
-            if last_ts.tzinfo is None:
-                last_ts = last_ts.tz_localize('UTC')
-            age_h = (pd.Timestamp.now(tz='UTC') - last_ts).total_seconds() / 3600
-            if age_h < 24:
-                logger.info(f"Nutze Cache ({age_h:.1f}h alt): {cache_path} ({len(df)} Kerzen)")
-                return df
-        except Exception:
-            return df  # Timestamp-Parsing-Fehler → Cache direkt nutzen
+        if not df.empty:
+            try:
+                last_ts = df.index[-1]
+                if last_ts.tzinfo is None:
+                    last_ts = last_ts.tz_localize('UTC')
+                age_h = (pd.Timestamp.now(tz='UTC') - last_ts).total_seconds() / 3600
+                if age_h < 24:
+                    logger.info(f"Nutze Cache ({age_h:.1f}h alt): {cache_path} ({len(df)} Kerzen)")
+                    return df
+            except Exception:
+                pass  # Timestamp-Parsing-Fehler → weiter zu Exchange
 
     # Von Exchange laden
     try:
@@ -59,12 +60,16 @@ def load_data(symbol, timeframe, limit=2000):
         exchange = Exchange(account)
     except Exception as e:
         if os.path.exists(cache_path):
-            logger.warning(f"Exchange nicht erreichbar, nutze alten Cache: {e}")
-            return pd.read_csv(cache_path, index_col=0, parse_dates=True)
+            df_cached = pd.read_csv(cache_path, index_col=0, parse_dates=True)
+            if not df_cached.empty:
+                logger.warning(f"Exchange nicht erreichbar, nutze alten Cache: {e}")
+                return df_cached
         raise ValueError(f"Keine Daten und Exchange nicht erreichbar: {e}")
 
     logger.info(f"Lade {limit} Kerzen für {symbol} ({timeframe}) von Exchange...")
     df = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=limit)
+    if df.empty:
+        raise ValueError(f"Exchange lieferte keine Daten für {symbol} ({timeframe})")
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
     df.to_csv(cache_path)
     logger.info(f"Daten gecacht: {cache_path} ({len(df)} Kerzen)")
