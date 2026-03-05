@@ -36,33 +36,46 @@ class Exchange:
 
     # --- OHLCV Methoden ---
     def fetch_recent_ohlcv(self, symbol, timeframe, limit=1000):
+        """Lädt die neuesten `limit` Kerzen ohne `since`-Parameter (Bitget-kompatibel)."""
         if not self.markets: return pd.DataFrame()
         if not self.exchange.has['fetchOHLCV']:
             raise ccxt.NotSupported("fetchOHLCV not supported by the exchange.")
 
-        timeframe_duration_in_ms = self.exchange.parse_timeframe(timeframe) * 1000
-        since = self.exchange.milliseconds() - timeframe_duration_in_ms * limit
+        BATCH = 1000  # Bitget max per request
+        timeframe_ms = self.exchange.parse_timeframe(timeframe) * 1000
         all_ohlcv = []
-        fetch_limit = 200
 
-        while since < self.exchange.milliseconds():
+        # Erste Charge: neueste Kerzen ohne since
+        try:
+            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, limit=min(limit, BATCH))
+            if not ohlcv:
+                logger.warning(f"No OHLCV data fetched for {symbol} ({timeframe}).")
+                return pd.DataFrame()
+            all_ohlcv = ohlcv
+        except Exception as e:
+            logger.error(f"Error fetching OHLCV for {symbol}: {e}")
+            return pd.DataFrame()
+
+        # Weitere Chargen rückwärts mit since, falls mehr als BATCH Kerzen benötigt
+        while len(all_ohlcv) < limit:
+            oldest_ts = all_ohlcv[0][0]
+            fetch_since = oldest_ts - timeframe_ms * BATCH
+            remaining = limit - len(all_ohlcv)
             try:
-                ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, since, fetch_limit)
-                if not ohlcv: break
-                all_ohlcv.extend(ohlcv)
-                since = ohlcv[-1][0] + timeframe_duration_in_ms
                 time.sleep(self.exchange.rateLimit / 1000)
-            except ccxt.RateLimitExceeded as e:
-                logger.warning(f"Rate limit exceeded: {e}. Waiting...")
+                ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, fetch_since, min(remaining + 10, BATCH))
+                if not ohlcv:
+                    break
+                # Nur Kerzen die älter als der bisherige älteste Timestamp sind
+                ohlcv = [c for c in ohlcv if c[0] < oldest_ts]
+                if not ohlcv:
+                    break
+                all_ohlcv = ohlcv + all_ohlcv
+            except ccxt.RateLimitExceeded:
                 time.sleep(5)
             except Exception as e:
-                logger.error(f"Error fetching OHLCV chunk for {symbol}: {e}")
-                time.sleep(1)
+                logger.error(f"Error fetching older OHLCV chunk for {symbol}: {e}")
                 break
-
-        if not all_ohlcv:
-            logger.warning(f"No OHLCV data fetched for {symbol} ({timeframe}).")
-            return pd.DataFrame()
 
         df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
