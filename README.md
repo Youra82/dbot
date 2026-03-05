@@ -122,10 +122,15 @@ git clone https://github.com/Youra82/dbot.git
 cd dbot
 ```
 
+> **Einmalig nach dem Klonen** — Ausführungsrechte für alle Scripts setzen:
+> ```bash
+> chmod +x *.sh
+> ```
+> Danach sind `./update.sh`, `./install.sh`, `./run_pipeline.sh`, `./show_results.sh`, `./push_configs.sh` und `./run_tests.sh` direkt ausführbar.
+
 ### 2. Automatische Installation (empfohlen)
 
 ```bash
-chmod +x install.sh
 ./install.sh
 ```
 
@@ -583,14 +588,6 @@ print('OK')
 ```
 
 ### Bot aktualisieren
-
-Beim ersten Mal Ausführungsrechte setzen:
-
-```bash
-chmod +x update.sh && ./update.sh
-```
-
-Danach reicht:
 
 ```bash
 ./update.sh
