@@ -201,7 +201,7 @@ nano secret.json
 Die komplette Workflow wird durch `run_pipeline.sh` abgebildet — von Datenabruf bis zur fertigen Config und automatischer `settings.json`-Aktualisierung:
 
 ```bash
-./run_pipeline.sh
+chmod +x run_pipeline.sh && ./run_pipeline.sh
 ```
 
 ### Was die Pipeline macht
@@ -366,7 +366,7 @@ PYTHONPATH=src .venv/bin/python3 src/dbot/strategy/run.py --symbol BTC/USDT:USDT
 ## 📊 Analyse & `./show_results.sh`
 
 ```bash
-./show_results.sh
+chmod +x show_results.sh && ./show_results.sh
 ```
 
 Alle 4 Modi fragen zuerst **Startdatum, Enddatum und Startkapital** ab (wie jaegerbot/stbot):
@@ -530,7 +530,7 @@ grep -i "ERROR\|CRITICAL" logs/dbot_*.log
 
 ```bash
 # Pipeline neu starten (empfohlen) — findet automatisch beste Konfiguration
-./run_pipeline.sh
+chmod +x run_pipeline.sh && ./run_pipeline.sh
 
 # Oder direkt via optimizer.py:
 PYTHONPATH=src .venv/bin/python3 src/dbot/analysis/optimizer.py \
@@ -543,7 +543,7 @@ PYTHONPATH=src .venv/bin/python3 src/dbot/analysis/optimizer.py \
 Nach `./run_pipeline.sh` liegen neue optimierte Config-Dateien in `src/dbot/strategy/configs/` — nur auf dem VPS, noch nicht im Repo. Mit `push_configs.sh` werden sie commited und gepusht:
 
 ```bash
-./push_configs.sh
+chmod +x push_configs.sh && ./push_configs.sh
 ```
 
 Typischer Ablauf:
@@ -590,7 +590,7 @@ print('OK')
 ### Bot aktualisieren
 
 ```bash
-./update.sh
+chmod +x update.sh && ./update.sh
 ```
 
 Das Update-Script:
@@ -605,7 +605,7 @@ Das Update-Script:
 ### Tests ausführen
 
 ```bash
-./run_tests.sh
+chmod +x run_tests.sh && ./run_tests.sh
 
 # Spezifisch
 PYTHONPATH=src .venv/bin/python3 -m pytest tests/ -v
