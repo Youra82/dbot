@@ -1,0 +1,33 @@
+{
+    "market": {
+        "symbol": "DOGE/USDT:USDT",
+        "timeframe": "1d"
+    },
+    "model": {
+        "sequence_length": 60,
+        "horizon_candles": 3,
+        "neutral_zone_pct": 0.2,
+        "rr_min": 2.41,
+        "rr_max": 4.73,
+        "long_threshold": 0.772,
+        "short_threshold": 0.4501
+    },
+    "risk": {
+        "stop_loss_pct": 0.5,
+        "leverage": 6,
+        "risk_per_entry_pct": 1.71,
+        "margin_mode": "isolated"
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "initial_capital_live": 1000,
+    "_backtest_metrics": {
+        "trades": 11,
+        "win_rate": 63.6,
+        "pnl_pct": 0.59,
+        "max_drawdown_pct": 0.21,
+        "calmar_ratio": 2.878
+    }
+}

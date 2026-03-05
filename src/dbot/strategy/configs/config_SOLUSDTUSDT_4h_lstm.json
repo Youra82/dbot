@@ -1,0 +1,33 @@
+{
+    "market": {
+        "symbol": "SOL/USDT:USDT",
+        "timeframe": "4h"
+    },
+    "model": {
+        "sequence_length": 60,
+        "horizon_candles": 3,
+        "neutral_zone_pct": 0.2,
+        "rr_min": 1.72,
+        "rr_max": 3.72,
+        "long_threshold": 0.6693,
+        "short_threshold": 0.6103
+    },
+    "risk": {
+        "stop_loss_pct": 0.87,
+        "leverage": 7,
+        "risk_per_entry_pct": 2.68,
+        "margin_mode": "isolated"
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "initial_capital_live": 1000,
+    "_backtest_metrics": {
+        "trades": 21,
+        "win_rate": 66.7,
+        "pnl_pct": 3.92,
+        "max_drawdown_pct": 0.19,
+        "calmar_ratio": 20.298
+    }
+}

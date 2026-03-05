@@ -1,0 +1,33 @@
+{
+    "market": {
+        "symbol": "AAVE/USDT:USDT",
+        "timeframe": "1d"
+    },
+    "model": {
+        "sequence_length": 60,
+        "horizon_candles": 3,
+        "neutral_zone_pct": 0.2,
+        "rr_min": 2.5,
+        "rr_max": 4.94,
+        "long_threshold": 0.7698,
+        "short_threshold": 0.4566
+    },
+    "risk": {
+        "stop_loss_pct": 0.91,
+        "leverage": 3,
+        "risk_per_entry_pct": 2.31,
+        "margin_mode": "isolated"
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "initial_capital_live": 1000,
+    "_backtest_metrics": {
+        "trades": 53,
+        "win_rate": 50.9,
+        "pnl_pct": 2.83,
+        "max_drawdown_pct": 0.23,
+        "calmar_ratio": 12.584
+    }
+}

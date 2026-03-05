@@ -1,0 +1,33 @@
+{
+    "market": {
+        "symbol": "ADA/USDT:USDT",
+        "timeframe": "4h"
+    },
+    "model": {
+        "sequence_length": 60,
+        "horizon_candles": 3,
+        "neutral_zone_pct": 0.2,
+        "rr_min": 1.23,
+        "rr_max": 1.85,
+        "long_threshold": 0.5811,
+        "short_threshold": 0.7828
+    },
+    "risk": {
+        "stop_loss_pct": 3.79,
+        "leverage": 6,
+        "risk_per_entry_pct": 0.89,
+        "margin_mode": "isolated"
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "initial_capital_live": 1000,
+    "_backtest_metrics": {
+        "trades": 0,
+        "win_rate": 0.0,
+        "pnl_pct": 0.0,
+        "max_drawdown_pct": 0.0,
+        "calmar_ratio": 0.0
+    }
+}

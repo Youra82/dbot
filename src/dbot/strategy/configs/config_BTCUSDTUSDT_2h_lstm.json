@@ -1,0 +1,33 @@
+{
+    "market": {
+        "symbol": "BTC/USDT:USDT",
+        "timeframe": "2h"
+    },
+    "model": {
+        "sequence_length": 60,
+        "horizon_candles": 3,
+        "neutral_zone_pct": 0.2,
+        "rr_min": 1.38,
+        "rr_max": 3.74,
+        "long_threshold": 0.61,
+        "short_threshold": 0.4892
+    },
+    "risk": {
+        "stop_loss_pct": 0.51,
+        "leverage": 6,
+        "risk_per_entry_pct": 1.64,
+        "margin_mode": "isolated"
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    },
+    "initial_capital_live": 1000,
+    "_backtest_metrics": {
+        "trades": 11,
+        "win_rate": 72.7,
+        "pnl_pct": 0.33,
+        "max_drawdown_pct": 0.07,
+        "calmar_ratio": 4.983
+    }
+}
