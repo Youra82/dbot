@@ -380,8 +380,8 @@ Zeitraum: 2024-01-01 → 2026-03-04 | Kapital: 15 USDT
 |-------|-------------|
 | **1** | **Einzel-Analyse** — Backtest jeder trainierten Strategie isoliert im gewählten Zeitraum |
 | **2** | **Portfolio-Simulation** — Manuelle Strategie-Auswahl, Kapital aufteilen, Gesamt-Performance |
-| **3** | **Modell-Info** — LSTM-Architektur, Trainingsdatum, Val-Accuracy, Prediction-Verteilung, aktuelles Signal |
-| **4** | **Live-Status** — Tracker-Dateien, Cooldown-Status, Performance-Stats, Log-Einträge gefiltert nach Datum |
+| **3** | **Auto Portfolio-Optimierung** — Greedy-Algorithmus wählt automatisch das beste Strategien-Team (max. Profit bei gewünschtem Max-Drawdown) und schreibt es in `settings.json` |
+| **4** | **Interaktive Charts** — OHLCV-Candlestick + LSTM Entry/Exit-Signale + Equity Curve als interaktive HTML-Datei, optional via Telegram versenden |
 
 ### Modus 1 — Einzel-Analyse
 
@@ -414,32 +414,49 @@ Portfolio Max DD:  14.1%
 Liquidiert:        NEIN
 ```
 
-### Modus 3 — Modell-Info
+### Modus 3 — Auto Portfolio-Optimierung
 
 ```
-── BTC/USDT:USDT (4h) ──
-LSTM:     hidden=128 | layers=2 | features=12
-Training: seq_len=60 | horizon=10 | neutral_zone=0.2%
-Datum:    2026-03-04 18:33
-Val Acc:  46.9%
+Gewünschter maximaler Drawdown in % [Standard: 30]: 20
 
-Signale (1388 Kerzen bis 2026-03-04 00:00 UTC):
-  LONG:    310 (22.3%) | Threshold: 0.7873
-  NEUTRAL: 568 (40.9%)
-  SHORT:   510 (36.7%) | Threshold: 0.4501
+1/3: Analysiere Einzel-Performance & filtere nach Max DD...
+2/3: Beste Einzelstrategie: config_BTCUSDTUSDT_4h_lstm.json (Endkapital: 1423.00 USDT, Max DD: 14.1%)
+3/3: Suche optimales Team...
+  -> Füge hinzu: config_XRPUSDTUSDT_6h_lstm.json (Neues Kapital: 1389.00 USDT, Max DD: 17.3%)
 
-Signal jetzt: SHORT (p=0.934)
-Optimizer: PnL=+42.3% | DD=14.1% | Calmar=3.41 | Trades=87
+Optimales Portfolio (2 Strategie(n)):
+  - config_BTCUSDTUSDT_4h_lstm.json
+  - config_XRPUSDTUSDT_6h_lstm.json
+
+Endkapital: 1389.00 USDT | PnL: +38.9% | Portfolio Max DD: 17.3%
+
+Sollen die optimalen Ergebnisse automatisch in settings.json eingetragen werden? (j/n): j
+✅ 2 Strategie(n) wurden in settings.json eingetragen
 ```
 
-### Modus 4 — Live-Status
+### Modus 4 — Interaktive Charts
 
 ```
-── BTC-USDT-USDT_4h ──
-Status:       ok_to_trade
-Letzte Seite: long
-Performance:  23 Trades | Win-Rate: 56.5% | Verluste in Folge: 1
+Verfuegbare Konfigurationen:
+  1) BTCUSDTUSDT_1d
+  2) BTCUSDTUSDT_4h
+  3) XRPUSDTUSDT_6h
+  ...
+Auswahl: 2
+
+Letzten N Tage anzeigen [leer=alle]: 90
+Telegram versenden? (j/n): j
+
+INFO: 87 Trades gefunden
+INFO: Chart gespeichert: artifacts/charts/dbot_BTCUSDTUSDT_4h.html
+INFO: Chart via Telegram versendet
 ```
+
+Erzeugte HTML-Datei enthält:
+- OHLCV-Candlesticks (interaktiv, zoombar)
+- Entry Long (grünes Dreieck ▲), Exit Long (Cyan Kreis ●)
+- Entry Short (oranges Dreieck ▼), Exit Short (rotes Diamant ◆)
+- Kontostand-Kurve (blaue Linie, rechte Y-Achse)
 
 ---
 
@@ -477,6 +494,7 @@ dbot/
 ├── auto_optimizer_scheduler.py        # Wöchentliches Re-Training
 ├── run_pipeline.sh                    # Vollautomatische Pipeline (empfohlen)
 ├── show_results.sh                    # 4-Modi Analyse
+├── push_configs.sh                    # Optimierte Configs ins Repo pushen (vom VPS)
 ├── run_tests.sh                       # Pytest Sicherheitsnetz
 ├── install.sh                         # Ersteinrichtung
 ├── update.sh                          # Git-Update mit secret.json Backup
@@ -515,6 +533,26 @@ PYTHONPATH=src .venv/bin/python3 src/dbot/analysis/optimizer.py \
     --epochs 50 --trials 200 --force-retrain
 ```
 
+### Configs nach Pipeline ins Repo pushen
+
+Nach `./run_pipeline.sh` liegen neue optimierte Config-Dateien in `src/dbot/strategy/configs/` — nur auf dem VPS, noch nicht im Repo. Mit `push_configs.sh` werden sie commited und gepusht:
+
+```bash
+./push_configs.sh
+```
+
+Typischer Ablauf:
+
+```
+Prüfe auf geänderte Konfigurationsdateien...
+  Geändert: src/dbot/strategy/configs/config_BTCUSDTUSDT_4h_lstm.json
+  Neu:      src/dbot/strategy/configs/config_XRPUSDTUSDT_6h_lstm.json
+Committe und pushe Konfigurationen...
+✅ Konfigurationen erfolgreich gepusht.
+```
+
+> **Hinweis**: Falls der Push abgelehnt wird (Remote hat neuere Commits), zuerst `git pull --rebase` ausführen.
+
 ### Caches leeren
 
 ```bash
@@ -552,7 +590,7 @@ print('OK')
 
 Das Update-Script:
 - Sichert `secret.json`
-- `git reset --hard origin/main`
+- `git reset --hard origin/master`
 - Stellt `secret.json` wieder her
 - Bereinigt Python-Cache
 - Setzt Ausführungsrechte
