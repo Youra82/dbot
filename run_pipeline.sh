@@ -39,12 +39,25 @@ fi
 # --- Interaktive Abfrage ---
 read -p "Handelspaar(e) eingeben (ohne /USDT:USDT, z.B. BTC ETH): " SYMBOLS
 read -p "Zeitfenster eingeben (z.B. 1h 4h): " TIMEFRAMES
+
+echo -e "\n${BLUE}--- Empfehlung: Optimaler Rückblick-Zeitraum ---${NC}"
+printf "+-------------+--------------------------------+\n"
+printf "| Zeitfenster | Empfohlener Rückblick (Tage)   |\n"
+printf "+-------------+--------------------------------+\n"
+printf "| 5m, 15m     | 60 - 90 Tage                   |\n"
+printf "| 30m, 1h     | 180 - 365 Tage                 |\n"
+printf "| 2h, 4h      | 550 - 730 Tage                 |\n"
+printf "| 6h, 1d      | 1095 - 1825 Tage               |\n"
+printf "+-------------+--------------------------------+\n"
+read -p "Startdatum (JJJJ-MM-TT) oder 'a' für Automatik [Standard: a]: " START_DATE_INPUT; START_DATE_INPUT=${START_DATE_INPUT:-a}
+read -p "Enddatum (JJJJ-MM-TT) [Standard: Heute]: " END_DATE; END_DATE=${END_DATE:-$(date +%F)}
+
 read -p "Startkapital in USDT [Standard: 1000]: " START_CAPITAL; START_CAPITAL=${START_CAPITAL:-1000}
-read -p "Anzahl Optuna-Trials [Standard: 100]: " N_TRIALS; N_TRIALS=${N_TRIALS:-100}
+read -p "Anzahl Optuna-Trials [Standard: 200]: " N_TRIALS; N_TRIALS=${N_TRIALS:-200}
 
 echo -e "\n${YELLOW}Wähle einen Optimierungs-Modus:${NC}"
-echo "  1) Strenger Modus   (Calmar mit Constraints: DD, Win-Rate, PnL)"
-echo "  2) 'Finde das Beste' (Max Calmar, nur DD-Constraint)"
+echo "  1) Strenger Modus   (PnL mit Constraints: DD, Win-Rate, Min-PnL)"
+echo "  2) 'Finde das Beste' (Max PnL, nur DD-Constraint)"
 read -p "Auswahl (1-2) [Standard: 1]: " OPTIM_MODE_CHOICE; OPTIM_MODE_CHOICE=${OPTIM_MODE_CHOICE:-1}
 
 if [ "$OPTIM_MODE_CHOICE" == "1" ]; then
@@ -54,7 +67,7 @@ if [ "$OPTIM_MODE_CHOICE" == "1" ]; then
     read -p "Min PnL % [Standard: 0]: " MIN_PNL; MIN_PNL=${MIN_PNL:-0}
 else
     OPTIM_MODE_ARG="best_profit"
-    read -p "Max Drawdown % [Standard: 50]: " MAX_DD; MAX_DD=${MAX_DD:-50}
+    read -p "Max Drawdown % [Standard: 30]: " MAX_DD; MAX_DD=${MAX_DD:-30}
     MIN_WR=0
     MIN_PNL=-99999
 fi
@@ -69,22 +82,29 @@ for symbol in $SYMBOLS; do
     FULL_SYMBOL="${symbol}/USDT:USDT"
     for timeframe in $TIMEFRAMES; do
 
-        # Automatisches Kerzen-Limit basierend auf Zeitfenster
-        case "$timeframe" in
-            5m|15m)           LIMIT=2500 ;;
-            30m|1h)           LIMIT=2000 ;;
-            2h|4h)            LIMIT=1500 ;;
-            6h|12h|1d|3d|1w)  LIMIT=1000 ;;
-            *)                LIMIT=1500 ;;
-        esac
+        # --- Datumsberechnung ---
+        if [ "$START_DATE_INPUT" == "a" ]; then
+            lookback_days=365
+            case "$timeframe" in
+                5m|15m)          lookback_days=60 ;;
+                30m|1h)          lookback_days=365 ;;
+                2h|4h)           lookback_days=730 ;;
+                6h|12h|1d|3d|1w) lookback_days=1095 ;;
+            esac
+            FINAL_START_DATE=$(date -d "$lookback_days days ago" +%F)
+            echo -e "${YELLOW}INFO: Automatisches Startdatum für $timeframe (${lookback_days} Tage Rückblick): $FINAL_START_DATE${NC}"
+        else
+            FINAL_START_DATE=$START_DATE_INPUT
+        fi
 
         SAFE_NAME="${symbol}USDTUSDT_${timeframe}"
         CONFIG_FILE="src/dbot/strategy/configs/config_${SAFE_NAME}_lstm.json"
-        BEST_CALMAR="-9999"
+        BEST_PNL="-9999"
         COMBO_IDX=0
 
         echo -e "\n${BLUE}=======================================================${NC}"
-        echo -e "${BLUE}  Pipeline für: $FULL_SYMBOL ($timeframe) | Limit: $LIMIT Kerzen${NC}"
+        echo -e "${BLUE}  Pipeline für: $FULL_SYMBOL ($timeframe)${NC}"
+        echo -e "${BLUE}  Datenzeitraum: $FINAL_START_DATE bis $END_DATE${NC}"
         echo -e "${BLUE}  Grid-Suche: ${#HORIZONS[@]} Horizonte × ${#NEUTRAL_ZONES[@]} Zonen = $TOTAL_COMBOS Kombinationen${NC}"
         echo -e "${BLUE}=======================================================${NC}"
 
@@ -96,7 +116,8 @@ for symbol in $SYMBOLS; do
                 PYTHONPATH="$SCRIPT_DIR/src" "$PYTHON" "$OPTIMIZER" \
                     --symbols "$FULL_SYMBOL" \
                     --timeframes "$timeframe" \
-                    --limit "$LIMIT" \
+                    --start-date "$FINAL_START_DATE" \
+                    --end-date "$END_DATE" \
                     --start-capital "$START_CAPITAL" \
                     --epochs 50 \
                     --trials "$N_TRIALS" \
@@ -113,16 +134,16 @@ for symbol in $SYMBOLS; do
                     continue
                 fi
 
-                # Calmar aus gespeicherter Config lesen und mit bisherigem Besten vergleichen
+                # PnL aus gespeicherter Config lesen und mit bisherigem Besten vergleichen
                 if [ -f "$CONFIG_FILE" ]; then
-                    NEW_CALMAR=$("$PYTHON" -c "import json; c=json.load(open('$CONFIG_FILE')); print(c.get('_backtest_metrics',{}).get('calmar_ratio',-9999))")
-                    IS_BETTER=$("$PYTHON" -c "print(1 if float('${NEW_CALMAR}') > float('${BEST_CALMAR}') else 0)")
+                    NEW_PNL=$("$PYTHON" -c "import json; c=json.load(open('$CONFIG_FILE')); print(c.get('_backtest_metrics',{}).get('pnl_pct',-9999))")
+                    IS_BETTER=$("$PYTHON" -c "print(1 if float('${NEW_PNL}') > float('${BEST_PNL}') else 0)")
                     if [ "$IS_BETTER" == "1" ]; then
-                        BEST_CALMAR=$NEW_CALMAR
+                        BEST_PNL=$NEW_PNL
                         cp "$CONFIG_FILE" "${CONFIG_FILE}.best"
-                        echo -e "${GREEN}  ✔ Neue beste Kombination! horizon=$H | neutral_zone=${N}% | Calmar=$BEST_CALMAR${NC}"
+                        echo -e "${GREEN}  ✔ Neue beste Kombination! horizon=$H | neutral_zone=${N}% | PnL=$BEST_PNL%${NC}"
                     else
-                        echo -e "  → Calmar=$NEW_CALMAR (kein Fortschritt, Bestes bisher: $BEST_CALMAR)"
+                        echo -e "  → PnL=$NEW_PNL% (kein Fortschritt, Bestes bisher: $BEST_PNL%)"
                     fi
                 fi
             done
@@ -131,7 +152,7 @@ for symbol in $SYMBOLS; do
         # Beste Config als finale Config setzen
         if [ -f "${CONFIG_FILE}.best" ]; then
             mv "${CONFIG_FILE}.best" "$CONFIG_FILE"
-            echo -e "\n${GREEN}✔ Beste Config gespeichert: $FULL_SYMBOL ($timeframe) | Calmar=$BEST_CALMAR${NC}"
+            echo -e "\n${GREEN}✔ Beste Config gespeichert: $FULL_SYMBOL ($timeframe) | PnL=$BEST_PNL%${NC}"
         else
             echo -e "${RED}❌ Keine valide Config gefunden für $FULL_SYMBOL ($timeframe)${NC}"
         fi
@@ -172,12 +193,12 @@ for config_file in sorted(config_files):
             config = json.load(f)
         symbol = config.get('market', {}).get('symbol')
         timeframe = config.get('market', {}).get('timeframe')
-        calmar = config.get('_backtest_metrics', {}).get('calmar_ratio', 0)
+        pnl = config.get('_backtest_metrics', {}).get('pnl_pct', 0)
         if symbol and timeframe:
             exists = any(s.get('symbol') == symbol and s.get('timeframe') == timeframe for s in new_strategies)
             if not exists:
                 new_strategies.append({"symbol": symbol, "timeframe": timeframe, "active": True})
-                print(f"  + {symbol} ({timeframe}) | Calmar={calmar:.3f}")
+                print(f"  + {symbol} ({timeframe}) | PnL={pnl:.2f}%")
     except Exception as e:
         print(f"  Fehler bei {os.path.basename(config_file)}: {e}")
 

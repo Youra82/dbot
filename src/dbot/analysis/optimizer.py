@@ -31,25 +31,17 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 # Daten laden
 # ---------------------------------------------------------------------------
 
-def load_data(symbol, timeframe, limit=2000):
-    """Lädt OHLCV-Daten von Exchange oder Cache."""
+def load_data(symbol, timeframe, start_date, end_date):
+    """Lädt historische OHLCV-Daten von Exchange oder Cache."""
     safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
-    cache_path = os.path.join(PROJECT_ROOT, 'data', f"{safe_name}.csv")
+    cache_path = os.path.join(PROJECT_ROOT, 'data', f"{safe_name}_{start_date}_{end_date}.csv")
 
-    # Cache nutzen wenn frisch (< 24h) und nicht leer
+    # Cache nutzen wenn vorhanden und nicht leer
     if os.path.exists(cache_path):
         df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
         if not df.empty:
-            try:
-                last_ts = df.index[-1]
-                if last_ts.tzinfo is None:
-                    last_ts = last_ts.tz_localize('UTC')
-                age_h = (pd.Timestamp.now(tz='UTC') - last_ts).total_seconds() / 3600
-                if age_h < 24:
-                    logger.info(f"Nutze Cache ({age_h:.1f}h alt): {cache_path} ({len(df)} Kerzen)")
-                    return df
-            except Exception:
-                pass  # Timestamp-Parsing-Fehler → weiter zu Exchange
+            logger.info(f"Nutze Cache: {cache_path} ({len(df)} Kerzen)")
+            return df
 
     # Von Exchange laden
     try:
@@ -66,8 +58,8 @@ def load_data(symbol, timeframe, limit=2000):
                 return df_cached
         raise ValueError(f"Keine Daten und Exchange nicht erreichbar: {e}")
 
-    logger.info(f"Lade {limit} Kerzen für {symbol} ({timeframe}) von Exchange...")
-    df = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=limit)
+    logger.info(f"Lade historische Daten für {symbol} ({timeframe}) von {start_date} bis {end_date}...")
+    df = exchange.fetch_historical_ohlcv(symbol, timeframe, start_date, end_date)
     if df.empty:
         raise ValueError(f"Exchange lieferte keine Daten für {symbol} ({timeframe})")
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
@@ -194,7 +186,7 @@ def create_objective(df_val, predictor, base_config, start_capital, mode, max_dr
             if max_dd > max_drawdown:
                 return -50.0 - max_dd
 
-        return calmar
+        return pnl_pct
 
     return objective
 
@@ -252,10 +244,11 @@ def save_best_config(symbol, timeframe, best_params, base_config, metrics):
 def run_optimizer(
     symbol: str,
     timeframe: str,
+    start_date: str,
+    end_date: str,
     n_trials: int = 100,
     start_capital: float = 1000.0,
     val_split: float = 0.2,
-    limit: int = 2000,
     epochs: int = 50,
     horizon: int = 5,
     neutral_zone_pct: float = 0.3,
@@ -271,7 +264,7 @@ def run_optimizer(
     scaler_path = os.path.join(PROJECT_ROOT, 'artifacts', 'models', f"{safe_name}_scaler.pkl")
 
     # 1. Daten laden
-    df = load_data(symbol, timeframe, limit=limit)
+    df = load_data(symbol, timeframe, start_date, end_date)
     if df is None or len(df) < 300:
         raise ValueError(f"Zu wenig Daten: {len(df) if df is not None else 0}")
     logger.info(f"Daten: {len(df)} Kerzen | {df.index[0]} → {df.index[-1]}")
@@ -322,7 +315,7 @@ def run_optimizer(
     study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
 
     best_trial = study.best_trial
-    logger.info(f"Beste Trial: Calmar={best_trial.value:.3f} | Params: {best_trial.params}")
+    logger.info(f"Beste Trial: PnL={best_trial.value:.2f}% | Params: {best_trial.params}")
 
     # 7. Finaler Backtest mit besten Parametern
     best_rr_min = best_trial.params['rr_min']
@@ -361,6 +354,8 @@ def main():
     parser = argparse.ArgumentParser(description="dbot Vollautomatische LSTM-Pipeline: Training + Optimierung")
     parser.add_argument('--symbols', required=True, nargs='+', help="Handelspaare, z.B. BTC/USDT:USDT ETH/USDT:USDT")
     parser.add_argument('--timeframes', required=True, nargs='+', help="Zeitfenster, z.B. 4h 1h")
+    parser.add_argument('--start-date', required=True, type=str, help="Startdatum (YYYY-MM-DD)")
+    parser.add_argument('--end-date', required=True, type=str, help="Enddatum (YYYY-MM-DD)")
     parser.add_argument('--start-capital', type=float, default=1000.0, help="Startkapital in USDT")
     parser.add_argument('--trials', type=int, default=100, help="Anzahl Optuna-Trials")
     parser.add_argument('--epochs', type=int, default=50, help="LSTM Training-Epochen")
@@ -368,7 +363,6 @@ def main():
     parser.add_argument('--neutral-zone', type=float, default=0.3, help="Neutrale Zone in %%")
     parser.add_argument('--seq-len', type=int, default=60, help="LSTM Eingabe-Fenster (Kerzen)")
     parser.add_argument('--val-split', type=float, default=0.2, help="Anteil für Optuna-Validierung (0-1)")
-    parser.add_argument('--limit', type=int, default=2000, help="Anzahl Kerzen von Exchange")
     parser.add_argument('--force-retrain', action='store_true', default=False, help="Modell neu trainieren auch wenn vorhanden")
     parser.add_argument('--mode', choices=['strict', 'best_profit'], default='strict', help="Optimierungs-Modus")
     parser.add_argument('--max-drawdown', type=float, default=30.0, help="Max erlaubter Drawdown %%")
@@ -385,10 +379,11 @@ def main():
                 best_params, metrics, config_path = run_optimizer(
                     symbol=symbol,
                     timeframe=timeframe,
+                    start_date=args.start_date,
+                    end_date=args.end_date,
                     n_trials=args.trials,
                     start_capital=args.start_capital,
                     val_split=args.val_split,
-                    limit=args.limit,
                     epochs=args.epochs,
                     horizon=args.horizon,
                     neutral_zone_pct=args.neutral_zone,
@@ -401,7 +396,7 @@ def main():
                 )
                 print(f"\n  Optimierung abgeschlossen!")
                 print(f"  Config: {config_path}")
-                print(f"  Calmar: {metrics.get('calmar_ratio', 0):.3f} | PnL: {metrics.get('pnl_pct', 0):.1f}% | Trades: {metrics.get('total_trades', 0)}")
+                print(f"  PnL: {metrics.get('pnl_pct', 0):.1f}% | Calmar: {metrics.get('calmar_ratio', 0):.3f} | Trades: {metrics.get('total_trades', 0)}")
             except Exception as e:
                 print(f"\n  FEHLER für {symbol} ({timeframe}): {e}")
                 logger.exception(e)
