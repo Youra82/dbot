@@ -37,32 +37,37 @@ def load_all_configs():
 
 def load_ohlcv(symbol, timeframe, start_date=None, end_date=None, limit=2000):
     safe_name = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
-    cache_path = os.path.join(PROJECT_ROOT, 'data', f"{safe_name}.csv")
+    sd = start_date or "2020-01-01"
+    ed = end_date or pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')
+    cache_path = os.path.join(PROJECT_ROOT, 'data', f"{safe_name}_{sd}_{ed}.csv")
+
     if os.path.exists(cache_path):
         df = pd.read_csv(cache_path, index_col=0, parse_dates=True)
-        logger.info(f"Cache geladen: {safe_name} ({len(df)} Kerzen)")
-    else:
-        logger.info(f"Lade {limit} Kerzen von Exchange: {symbol} ({timeframe})...")
-        try:
-            with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
-                secrets = json.load(f)
-            account = secrets.get('dbot', [{}])[0]
-            from dbot.utils.exchange import Exchange
-            exchange = Exchange(account)
-            df = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=limit)
-            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-            df.to_csv(cache_path)
-        except Exception as e:
-            logger.error(f"Konnte Daten nicht laden: {e}")
+        if not df.empty:
+            logger.info(f"Cache geladen: {safe_name} ({len(df)} Kerzen)")
+            if df.index.tz is None:
+                df.index = df.index.tz_localize('UTC')
+            return df
+
+    logger.info(f"Lade historische Daten von Exchange: {symbol} ({timeframe}) von {sd} bis {ed}...")
+    try:
+        with open(os.path.join(PROJECT_ROOT, 'secret.json')) as f:
+            secrets = json.load(f)
+        account = secrets.get('dbot', [{}])[0]
+        from dbot.utils.exchange import Exchange
+        exchange = Exchange(account)
+        df = exchange.fetch_historical_ohlcv(symbol, timeframe, sd, ed)
+        if df.empty:
+            logger.error(f"Keine Daten von Exchange für {symbol} ({timeframe})")
             return None
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        df.to_csv(cache_path)
+    except Exception as e:
+        logger.error(f"Konnte Daten nicht laden: {e}")
+        return None
 
     if df.index.tz is None:
         df.index = df.index.tz_localize('UTC')
-    if start_date:
-        df = df[df.index >= pd.Timestamp(start_date, tz='UTC')]
-    if end_date:
-        df = df[df.index < pd.Timestamp(end_date, tz='UTC') + pd.Timedelta(days=1)]
-
     return df
 
 

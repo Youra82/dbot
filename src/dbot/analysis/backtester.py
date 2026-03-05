@@ -287,6 +287,8 @@ def main():
     parser.add_argument('--symbol', required=True, type=str, help="Handelspaar (z.B. BTC/USDT:USDT)")
     parser.add_argument('--timeframe', required=True, type=str, help="Zeitrahmen (z.B. 4h)")
     parser.add_argument('--start-capital', type=float, default=1000.0, help="Startkapital USDT")
+    parser.add_argument('--start-date', type=str, default='2022-01-01', help="Startdatum (YYYY-MM-DD)")
+    parser.add_argument('--end-date', type=str, default=None, help="Enddatum (YYYY-MM-DD)")
     parser.add_argument('--data-file', type=str, help="Pfad zu lokaler CSV-Datei (optional)")
     args = parser.parse_args()
 
@@ -322,8 +324,9 @@ def main():
             sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
             from dbot.utils.exchange import Exchange
             exchange = Exchange(account)
-            logger.info(f"Lade historische Daten für {symbol} ({timeframe})...")
-            df = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=2000)
+            end_date = args.end_date or pd.Timestamp.now(tz='UTC').strftime('%Y-%m-%d')
+            logger.info(f"Lade historische Daten für {symbol} ({timeframe}) von {args.start_date} bis {end_date}...")
+            df = exchange.fetch_historical_ohlcv(symbol, timeframe, args.start_date, end_date)
         except Exception as e:
             print(f"FEHLER: Konnte keine Daten laden: {e}")
             sys.exit(1)
