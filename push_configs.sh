@@ -43,16 +43,28 @@ echo ""
 TIMESTAMP=$(date '+%Y-%m-%d %H:%M')
 git commit -m "Update: LSTM-Konfigurationen aktualisiert ($TIMESTAMP)"
 
-# Push
+# Push (mit automatischem Rebase bei Konflikt)
 echo ""
-echo -e "${YELLOW}Pushe auf origin/main...${NC}"
-git push origin HEAD:main
+echo -e "${YELLOW}Pushe auf origin/master...${NC}"
+git push origin HEAD:master
 
 if [ $? -eq 0 ]; then
     echo ""
     echo -e "${GREEN}✅ Configs erfolgreich gepusht!${NC}"
 else
     echo ""
-    echo -e "${RED}❌ Push fehlgeschlagen. Versuche: git pull origin main --rebase && ./push_configs.sh${NC}"
-    exit 1
+    echo -e "${YELLOW}Remote hat neuere Commits — führe Rebase durch...${NC}"
+    git pull origin master --rebase
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}❌ Rebase fehlgeschlagen. Bitte manuell lösen.${NC}"
+        exit 1
+    fi
+    git push origin HEAD:master
+    if [ $? -eq 0 ]; then
+        echo ""
+        echo -e "${GREEN}✅ Configs erfolgreich gepusht!${NC}"
+    else
+        echo -e "${RED}❌ Push nach Rebase fehlgeschlagen.${NC}"
+        exit 1
+    fi
 fi
