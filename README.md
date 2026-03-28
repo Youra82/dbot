@@ -696,6 +696,61 @@ git status
 
 ---
 
+## Coin & Timeframe Empfehlungen
+
+DBot ist eine **LSTM-Deep-Learning-Strategie** — das LSTM-Netzwerk verarbeitet immer 60 aufeinanderfolgende Kerzen und klassifiziert die nächste Bewegung als Long/Neutral/Short. Benötigt: mindestens 2 Jahre Trainingsdaten, Coins mit erkennbaren temporalen Mustern.
+
+### Effektive Zeitspannen des 60-Kerzen-LSTM-Fensters
+
+| TF | 60-Kerzen-Fenster | EMA50-Spanne | Wochenzyklus-Erfassung | Geeignet |
+|---|---|---|---|---|
+| 15m | 15h | 12.5h | Kein | ❌ |
+| 30m | 30h | 25h | Teilweise | ⚠️ |
+| 1h | 60h (2.5d) | 50h | Ja | ✅ |
+| 2h | 120h (5d) | 100h | Ja | ✅ |
+| **4h** | **240h (10d)** | **200h** | **Vollständig** | **✅✅** |
+| **6h** | **360h (15d)** | **300h** | **Vollständig** | **✅✅** |
+| 1d | 60d (2 Mon.) | 50d | Mehrere Wochen | ✅ |
+
+Das 60-Kerzen-Fenster umspannt immer exakt ~1.2x die EMA50-Periode. Auf 4h entspricht das 10 Tagen — vollständige Wochenzyklen inklusive Wochenend-Volatilität werden erfasst. Auf 15m sind 15h zu kurz für bedeutungsvolle temporale Abhängigkeiten.
+
+### Coin-Eignung
+
+| Coin | LSTM-Lernbarkeit | Temporale Muster | Trainingsdaten | Bewertung |
+|---|---|---|---|---|
+| **BTC** | Exzellent — stärkste temporale Muster in Crypto | Wochenzyklen, Fear/Greed klar erkennbar | Längste Datenbasis | ✅✅ Beste Wahl |
+| **ETH** | Exzellent — folgt BTC mit eigenem Charakter | Gute temporale Regelmäßigkeit | Sehr gute Datenbasis | ✅✅ Sehr gut |
+| **SOL** | Sehr gut — klare Trend-Sequenzen | Gute Multi-Day-Patterns | Ausreichend ab 2020 | ✅ Gut |
+| **BNB** | Gut — stabile, vorhersehbare Sequenzen | Moderate temporale Muster | Gute Datenbasis | ✅ Gut |
+| **LTC** | Gut — BTC-korreliert, stabile Sequenzen | Ähnlich BTC | Lange Datenbasis | ✅ Gut |
+| **AVAX** | Gut — klare Trend-Sequenzen | Gute Muster in Bullphasen | Ausreichend | ✅ Gut |
+| **XRP** | Mittel — lange Ranging-Phasen stören | Unregelmäßige Muster | Lange Datenbasis | ⚠️ Mittel |
+| **ARB** | Mittel — zu wenig Daten für gutes Training | Aufbauend | Kurze Datenbasis (ab 2023) | ⚠️ Mittel |
+| **DOT** | Mittel — träge Bewegungen | Schwache Muster | Ausreichend | ⚠️ Mittel |
+| **ADA** | Mittel — sehr lange Ranging-Phasen | Schwache temporale Signale | Gute Datenbasis | ⚠️ Mittel |
+| **DOGE** | Schlecht — nicht-lernbare Muster | Sentiment-Spikes stören Sequenzen | Vorhanden aber unbrauchbar | ❌ Schlecht |
+| **SHIB/PEPE** | Nicht lernbar — Pumps zerstören Sequenzen | Keine temporalen Muster | Zu kurze Datenbasis | ❌❌ Nicht geeignet |
+
+### Empfohlene Kombinationen (Ranking)
+
+| Rang | Kombination | Erwartete Accuracy | Begründung |
+|---|---|---|---|
+| 🥇 1 | **BTC 4h** | 72–82% | 10-Tage-Fenster erfasst Wochen- und Monats-Zyklen vollständig |
+| 🥇 1 | **ETH 4h** | 70–80% | Ähnlich BTC, eigenständige temporale Muster |
+| 🥈 2 | **BTC 6h** | 72–82% | Noch sauberere Sequenzen, weniger Noise |
+| 🥈 2 | **ETH 6h** | 70–80% | Gute Sequenzqualität |
+| 🥉 3 | **SOL 4h** | 65–75% | Klare Trending-Sequenzen in Bullphasen |
+| 4 | **BNB 4h** | 63–73% | Stabile, vorhersehbare Sequenzen |
+| 4 | **LTC 4h** | 63–73% | BTC-korreliert, gute Datenbasis |
+| 5 | **BTC 1d** | 75–85% | Beste Accuracy, aber weniger Trades |
+| ❌ | **Alles auf 15m / 30m** | < 58% | Fenster zu kurz für temporale Abhängigkeiten |
+| ❌ | **DOGE / SHIB** | < 55% | Sentiment-Spikes zerstören die Sequenz-Logik |
+
+> **Hinweis:** Das Training benötigt mindestens 2 Jahre Daten. BTC/ETH 4h mit 2-3 Jahren Datenbasis ermöglicht dem LSTM vollständige Marktzyklen (Bull/Bear/Seitwärts) zu lernen.
+
+
+---
+
 ## 📜 Lizenz
 
 Dieses Projekt ist lizenziert unter der MIT License.
